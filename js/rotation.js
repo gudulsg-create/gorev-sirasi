@@ -28,9 +28,30 @@ export function queueOf(state, seniorityId) {
   return state.people.filter((p) => p.seniorityId === seniorityId).sort((a, b) => a.order - b.order);
 }
 
+/** Yerel tarih, "YYYY-MM-DD". */
+export function dayKey(ms = Date.now()) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Kişinin verilen gün içine düşen izni (varsa). */
+export function leaveOn(person, day = dayKey()) {
+  return (person.leaves || []).find((l) => l.from <= day && day <= l.to) || null;
+}
+
+/** Kişi o gün görev alabilir mi? (elle izinli değil ve tarihli izinde değil) */
+export function isAvailable(person, day = dayKey()) {
+  return person.active !== false && !leaveOn(person, day);
+}
+
+/** Bitmiş izinleri temizler, kalanları başlangıca göre sıralar. */
+export function cleanLeaves(leaves = [], day = dayKey()) {
+  return leaves.filter((l) => l.to >= day).sort((a, b) => a.from.localeCompare(b.from));
+}
+
 /** Sıradaki müsait kişi. `after` verilirse o göstergeden sonrakini döndürür. */
-export function nextPerson(state, typeId, seniorityId, after) {
-  const q = queueOf(state, seniorityId).filter((p) => p.active !== false);
+export function nextPerson(state, typeId, seniorityId, after, day = dayKey()) {
+  const q = queueOf(state, seniorityId).filter((p) => isAvailable(p, day));
   if (!q.length) return null;
   const ptr = after === undefined ? state.pointers[queueKey(typeId, seniorityId)] : after;
   if (!ptr) return q[0];
@@ -40,11 +61,11 @@ export function nextPerson(state, typeId, seniorityId, after) {
 const samePtr = (a, b) => !!a && !!b && a.personId === b.personId && a.order === b.order;
 
 /** Görevi sıradaki kişiye verir. Yeni durum ve kayıt döner; girdi değiştirilmez. */
-export function assign(state, typeId, seniorityId, { id, by = '', byId = null, note = '', now = Date.now() } = {}) {
+export function assign(state, typeId, seniorityId, { id, by = '', byId = null, note = '', dueDate = null, now = Date.now() } = {}) {
   const type = state.taskTypes.find((t) => t.id === typeId);
   const sen = state.seniorities.find((s) => s.id === seniorityId);
   if (!type || !sen) throw new Error('Görev türü veya kıdem bulunamadı.');
-  const person = nextPerson(state, typeId, seniorityId);
+  const person = nextPerson(state, typeId, seniorityId, undefined, dayKey(now));
   if (!person) throw new Error(`${sen.name} için müsait kimse yok.`);
   const key = queueKey(typeId, seniorityId);
   const pointer = { personId: person.id, order: person.order };
@@ -61,6 +82,7 @@ export function assign(state, typeId, seniorityId, { id, by = '', byId = null, n
       by,
       byId,
       note,
+      dueDate: dueDate || null,
       createdAt: now,
       status: 'aktif',
       skipped: [],
@@ -91,13 +113,13 @@ export function cancel(state, a) {
  * Görevi alan kişi müsait değilse görevi sıradaki kişiye aktarır.
  * Yalnızca bu sırada verilen en son görev için yapılabilir.
  */
-export function passOn(state, a) {
+export function passOn(state, a, day = dayKey()) {
   if (a.status !== 'aktif') throw new Error('Yalnızca aktif görevler aktarılabilir.');
   const key = queueKey(a.typeId, a.seniorityId);
   if (!samePtr(state.pointers[key], a.pointer)) {
     throw new Error('Bu sırada daha sonra başka görev verilmiş; aktarma yapılamaz. Görevi iptal edip yeniden verebilirsiniz.');
   }
-  const next = nextPerson(state, a.typeId, a.seniorityId, a.pointer);
+  const next = nextPerson(state, a.typeId, a.seniorityId, a.pointer, day);
   if (!next || next.id === a.personId) throw new Error('Sırada başka müsait kişi yok.');
   const pointer = { personId: next.id, order: next.order };
   return {

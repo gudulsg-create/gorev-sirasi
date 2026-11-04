@@ -19,6 +19,12 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 - Görev türleri ve kıdem adları Ayarlar sekmesinden değiştirilebilir. Kıdemler en kıdemliden en yeniye doğru sıralanır.
 - Aynı anda iki kişi görev verirse Firestore işlemi (transaction) sayesinde ikisi aynı kişiye düşmez.
 
+## Görevlerim, teslim tarihi ve tarihli izin
+
+- **Görevlerim** sekmesi: sana verilen açık görevler (son güne göre sıralı), verdiğin ve henüz bitmemiş görevler ve son tamamladıkların. Sekmedeki kırmızı sayı açık görev sayını gösterir.
+- **Teslim tarihi:** Görev verirken isteğe bağlı "Son gün" seçilir (Bugün / Yarın / 3 gün / 1 hafta ya da takvimden). Son günü geçen açık görevler kırmızı "Gecikti" etiketiyle görünür.
+- **Tarihli izin:** Başasistan Ekip → ✎ → *Tarihli izin* bölümünden tarih aralığı ekler. Kişi o tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner. Ekip listesinde "İzinde" / "Planlı izin" olarak görünür.
+
 ## Ayın elemanı
 
 - "Tamamlandı" olarak işaretlenen her görev, görevi alan kişiye ve görevin **verildiği aya** sayılır. Ay sonunda en çok görev tamamlayan **ayın elemanı** olur; eşitlikte birden fazla kişi seçilir.

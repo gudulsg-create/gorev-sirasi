@@ -181,3 +181,28 @@ test('ay anahtarları', () => {
   assert.equal(prevMonth('2026-01'), '2025-12');
   assert.equal(prevMonth('2026-11'), '2026-10');
 });
+
+import { leaveOn, isAvailable, cleanLeaves } from '../js/rotation.js';
+
+test('tarihli izin: o tarihlerde sırada atlanır, sonra geri döner', () => {
+  let s = team();
+  s = { ...s, people: s.people.map((p) => (p.id === 'ali' ? { ...p, leaves: [{ from: '2026-12-03', to: '2026-12-07' }] } : p)) };
+  const ali = s.people.find((p) => p.id === 'ali');
+  assert.equal(isAvailable(ali, '2026-12-02'), true);
+  assert.equal(isAvailable(ali, '2026-12-03'), false);
+  assert.equal(isAvailable(ali, '2026-12-07'), false);
+  assert.equal(isAvailable(ali, '2026-12-08'), true);
+  assert.equal(nextPerson(s, 'patoloji', 'k5', undefined, '2026-12-05').name, 'Ayşe');
+  assert.equal(nextPerson(s, 'patoloji', 'k5', undefined, '2026-12-10').name, 'Ali');
+  const dec5 = new Date(2026, 11, 5, 10).getTime();
+  assert.equal(assign(s, 'patoloji', 'k5', { now: dec5 }).assignment.personName, 'Ayşe');
+  assert.deepEqual(leaveOn(ali, '2026-12-04'), { from: '2026-12-03', to: '2026-12-07' });
+  assert.deepEqual(cleanLeaves([{ from: '2026-11-01', to: '2026-11-02' }, { from: '2026-12-10', to: '2026-12-11' }, { from: '2026-12-01', to: '2026-12-03' }], '2026-11-20'),
+    [{ from: '2026-12-01', to: '2026-12-03' }, { from: '2026-12-10', to: '2026-12-11' }]);
+});
+
+test('teslim tarihi kayda yazılır', () => {
+  const r = assign(team(), 'patoloji', 'k5', { dueDate: '2026-11-10' });
+  assert.equal(r.assignment.dueDate, '2026-11-10');
+  assert.equal(assign(team(), 'patoloji', 'k5').assignment.dueDate, null);
+});

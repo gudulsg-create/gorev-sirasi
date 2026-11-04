@@ -1,6 +1,6 @@
 import { firebaseConfig, teamId } from './firebase-config.js';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -70,6 +70,20 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const S = () => data.state;
 const typeName = (id) => S().taskTypes.find((t) => t.id === id)?.name ?? 'Silinmiş görev türü';
 const senName = (id) => S().seniorities.find((s) => s.id === id)?.name ?? '—';
+const fmtDay = (day) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(y, m - 1, d));
+};
+const addDays = (n) => dayKey(Date.now() + n * 86400000);
+/** Teslim tarihi etiketi: geçti / bugün / tarih. */
+function dueBadge(a) {
+  if (!a.dueDate) return null;
+  const today = dayKey();
+  const open = a.status === 'aktif';
+  if (open && a.dueDate < today) return h('span', { class: 'due late' }, `⚠️ Gecikti · son gün ${fmtDay(a.dueDate)}`);
+  if (open && a.dueDate === today) return h('span', { class: 'due today' }, '⏰ Son gün bugün');
+  return h('span', { class: 'due' }, `📅 Son gün: ${fmtDay(a.dueDate)}`);
+}
 const fmtDate = (ms) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
 
 // ---------- Profil fotoğrafı ----------
@@ -213,7 +227,11 @@ function render() {
     view.replaceChildren(loginView());
     return;
   }
-  const views = { give: giveView, history: historyView, team: teamView, settings: settingsView };
+  const views = { give: giveView, mine: mineView, history: historyView, team: teamView, settings: settingsView };
+  const openMine = data.assignments.filter((a) => a.status === 'aktif' && a.personId === mp?.id).length;
+  const badge = document.getElementById('mine-count');
+  badge.hidden = !openMine;
+  badge.textContent = String(openMine);
   view.replaceChildren(views[tab]());
 }
 
@@ -361,6 +379,13 @@ function nextTable() {
 function chooseSeniority(type) {
   const s = S();
   const note = h('input', { name: 'note', maxlength: '120', placeholder: 'Not (isteğe bağlı)', autocomplete: 'off' });
+  const due = h('input', { type: 'date', name: 'due', min: dayKey(), 'aria-label': 'Son gün' });
+  const quick = (label, n) => h('button', { type: 'button', class: 'chip-btn', onclick: () => { due.value = n === null ? '' : addDays(n); } }, label);
+  const dueRow = h('div', { class: 'due-row' },
+    h('span', { class: 'field-label' }, 'Son gün'),
+    h('div', { class: 'chips' }, quick('Yok', null), quick('Bugün', 0), quick('Yarın', 1), quick('3 gün', 3), quick('1 hafta', 7)),
+    due,
+  );
   const allowed = allowedSeniorities(s, mePerson()?.id);
   const list = h('div', { class: 'sen-list' },
     s.seniorities.map((x) => {
@@ -370,7 +395,7 @@ function chooseSeniority(type) {
         type: 'button',
         class: 'sen-btn',
         disabled: !next || !ok,
-        onclick: () => give(type, x, note.value.trim()),
+        onclick: () => give(type, x, note.value.trim(), due.value || null),
       },
         h('strong', {}, x.name),
         h('span', { class: 'sen-next' }, ok && next ? avatar(next, 24) : null, !ok ? 'Üst / aynı kıdem' : next ? `Sıradaki: ${next.name}` : 'Müsait kimse yok'),
@@ -379,13 +404,14 @@ function chooseSeniority(type) {
   );
   openDialog(`${type.name}`, h('div', { class: 'form-grid' },
     h('p', { class: 'muted' }, allowed.length ? 'Hangi kıdeme verilsin?' : 'Senin altında görev verebileceğin bir kıdem yok.'),
-    list,
+    dueRow,
     note,
-    h('small', { class: 'muted' }, 'Kişisel sağlık verisi (hasta adı, TC no vb.) yazmayın.'),
+    h('small', { class: 'muted' }, 'Kişisel sağlık verisi (hasta adı, TC no vb.) yazmayın. Son gün ve notu doldurduktan sonra kıdemi seç.'),
+    list,
   ));
 }
 
-async function give(type, sen, note) {
+async function give(type, sen, note, dueDate = null) {
   const mp = mePerson();
   if (!mp) {
     dlg.close();
@@ -393,7 +419,7 @@ async function give(type, sen, note) {
   }
   if (!allowedSeniorities(S(), mp.id).includes(sen.id)) return toast('Yalnızca alt kıdemlere görev verebilirsin.');
   const r = await run((state) => {
-    const out = assign(state, type.id, sen.id, { id: uid(), by: mp.name, byId: mp.id, note });
+    const out = assign(state, type.id, sen.id, { id: uid(), by: mp.name, byId: mp.id, note, dueDate });
     return { state: out.state, add: out.assignment };
   });
   if (!r) return;
@@ -405,6 +431,7 @@ function showResult(a) {
     h('div', { class: 'result-photo' }, avatar(a.personId, 96), h('span', { class: 'result-check' }, '✓')),
     h('p', { class: 'result-name' }, a.personName),
     h('p', { class: 'muted' }, `${a.typeName} · ${a.seniorityName}`),
+    a.dueDate ? h('p', {}, dueBadge(a)) : null,
     a.skipped?.length ? h('p', { class: 'muted small' }, `Aktarıldı: ${a.skipped.map((x) => x.personName).join(', ')} yerine`) : null,
   );
   openDialog(null, body, {
@@ -459,12 +486,14 @@ async function toggleDone(a) {
 
 function assignmentItem(a, { compact = false } = {}) {
   const status = { aktif: 'Verildi', tamamlandı: 'Tamamlandı', iptal: 'İptal' }[a.status] ?? a.status;
-  return h('li', { class: `asg ${a.status === 'iptal' ? 'cancelled' : ''}` },
+  const late = a.status === 'aktif' && a.dueDate && a.dueDate < dayKey();
+  return h('li', { class: `asg ${a.status === 'iptal' ? 'cancelled' : ''} ${late ? 'late' : ''}` },
     h('div', { class: 'asg-main' },
       h('div', { class: 'asg-title' }, h('span', { class: 'asg-who' }, avatar(a.personId, 28), h('strong', {}, a.personName)), h('span', { class: `badge s-${a.status}` }, status)),
       h('span', {}, `${a.typeName} · ${a.seniorityName}`),
       h('span', { class: 'muted small' }, `${fmtDate(a.createdAt)}${a.by ? ' · veren: ' + a.by : ''}`),
       a.skipped?.length ? h('span', { class: 'muted small' }, `↪ ${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
+      dueBadge(a),
       a.note ? h('span', { class: 'note' }, a.note) : null,
     ),
     !compact && a.status !== 'iptal' && (canToggleDone(a) || canPassOn(a) || isAdmin()) && h('div', { class: 'asg-actions' },
@@ -472,6 +501,26 @@ function assignmentItem(a, { compact = false } = {}) {
       a.status === 'aktif' && canPassOn(a) && h('button', { class: 'btn small', onclick: () => doPassOn(a) }, 'Aktar'),
       isAdmin() && h('button', { class: 'btn small danger-ghost', onclick: () => doCancel(a) }, 'İptal'),
     ),
+  );
+}
+
+// --- Görevlerim ---
+function mineView() {
+  const me = mePerson();
+  const byDue = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || a.createdAt - b.createdAt;
+  const open = data.assignments.filter((a) => a.status === 'aktif' && a.personId === me.id).sort(byDue);
+  const done = data.assignments.filter((a) => a.status === 'tamamlandı' && a.personId === me.id).slice(0, 10);
+  const given = data.assignments.filter((a) => a.status === 'aktif' && a.byId === me.id).sort(byDue);
+  const late = open.filter((a) => a.dueDate && a.dueDate < dayKey()).length;
+  return h('section', {},
+    h('h2', { style: 'margin-top:0' }, `Bana verilen açık görevler (${open.length})`),
+    late ? h('p', { class: 'late-note' }, `⚠️ ${late} görevin son günü geçti.`) : null,
+    open.length ? h('ul', { class: 'asg-list' }, open.map((a) => assignmentItem(a))) : h('p', { class: 'muted' }, '🎉 Açık görevin yok.'),
+    h('p', { class: 'hint' }, 'Bitirdiğin görevi "Tamamlandı" olarak işaretle; ayın elemanı sayımına eklenir.'),
+    given.length ? h('h2', {}, `Verdiğim, henüz bitmemiş görevler (${given.length})`) : null,
+    given.length ? h('ul', { class: 'asg-list' }, given.map((a) => assignmentItem(a))) : null,
+    done.length ? h('h2', {}, 'Son tamamladıklarım') : null,
+    done.length ? h('ul', { class: 'asg-list' }, done.map((a) => assignmentItem(a))) : null,
   );
 }
 
@@ -533,6 +582,13 @@ function personRow(p, i, n, manage) {
   const summary = S().taskTypes.map((t) => c[t.id] ? `${t.name.split(' ')[0]} ${c[t.id]}` : null).filter(Boolean).join(' · ');
   const main = h('div', { class: 'person-main' },
     h('strong', {}, p.name, lastMonthWinnerIds().includes(p.id) ? h('span', { title: 'Geçen ayın elemanı' }, ' 🏆') : null, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
+    (() => {
+      const now = leaveOn(p);
+      const next = cleanLeaves(p.leaves || []).find((l) => l.from > dayKey());
+      if (now) return h('span', { class: 'leave-tag' }, `🌴 İzinde · ${fmtDay(now.to)}'e kadar`);
+      if (next) return h('span', { class: 'muted small' }, `🌴 Planlı izin: ${fmtDay(next.from)} – ${fmtDay(next.to)}`);
+      return null;
+    })(),
     h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
   );
   if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, avatar(p, 36), main);
@@ -555,6 +611,38 @@ function personRow(p, i, n, manage) {
   );
 }
 
+/** Başasistan: kişinin tarihli izinleri. Değişiklik hemen kaydedilir. */
+function leaveEditor(p) {
+  const list = h('ul', { class: 'leave-list' });
+  const draw = (leaves) => {
+    list.replaceChildren(...(leaves.length ? leaves.map((l, i) => h('li', {},
+      h('span', {}, `${fmtDay(l.from)} – ${fmtDay(l.to)}`),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'İzni sil', onclick: () => save(leaves.filter((_, j) => j !== i)) }, '🗑'),
+    )) : [h('li', { class: 'muted small' }, 'Planlı izin yok.')]));
+  };
+  const save = async (leaves) => {
+    const clean = cleanLeaves(leaves);
+    await update((st) => ({ ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, leaves: clean } : x)) }), 'İzinler kaydedildi');
+    draw(clean);
+  };
+  const from = h('input', { type: 'date', min: dayKey(), 'aria-label': 'İzin başlangıcı' });
+  const to = h('input', { type: 'date', min: dayKey(), 'aria-label': 'İzin bitişi' });
+  draw(cleanLeaves(p.leaves || []));
+  return h('fieldset', { class: 'leave-box' },
+    h('legend', {}, 'Tarihli izin'),
+    list,
+    h('div', { class: 'leave-add' }, from, h('span', {}, '–'), to,
+      h('button', { type: 'button', class: 'btn small', onclick: () => {
+        if (!from.value || !to.value) return toast('Başlangıç ve bitiş tarihini seç.');
+        if (to.value < from.value) return toast('Bitiş, başlangıçtan önce olamaz.');
+        const current = S().people.find((x) => x.id === p.id)?.leaves || [];
+        save([...current, { from: from.value, to: to.value }]);
+        from.value = ''; to.value = '';
+      } }, 'Ekle')),
+    h('small', { class: 'muted' }, 'Kişi bu tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner.'),
+  );
+}
+
 function editPerson(p) {
   const s = S();
   const body = h('div', { class: 'form-grid' },
@@ -563,6 +651,7 @@ function editPerson(p) {
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Kıdem'),
       h('select', { name: 'sen' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === p.seniorityId }, x.name)))),
     h('small', { class: 'muted' }, 'Kıdemi değişen kişi yeni kıdeminin sırasının sonuna eklenir.'),
+    leaveEditor(p),
   );
   openDialog('Asistanı düzenle', body, {
     extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: async () => {

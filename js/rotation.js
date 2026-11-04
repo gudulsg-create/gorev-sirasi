@@ -40,7 +40,7 @@ export function nextPerson(state, typeId, seniorityId, after) {
 const samePtr = (a, b) => !!a && !!b && a.personId === b.personId && a.order === b.order;
 
 /** Görevi sıradaki kişiye verir. Yeni durum ve kayıt döner; girdi değiştirilmez. */
-export function assign(state, typeId, seniorityId, { id, by = '', note = '', now = Date.now() } = {}) {
+export function assign(state, typeId, seniorityId, { id, by = '', byId = null, note = '', now = Date.now() } = {}) {
   const type = state.taskTypes.find((t) => t.id === typeId);
   const sen = state.seniorities.find((s) => s.id === seniorityId);
   if (!type || !sen) throw new Error('Görev türü veya kıdem bulunamadı.');
@@ -59,6 +59,7 @@ export function assign(state, typeId, seniorityId, { id, by = '', note = '', now
       personId: person.id,
       personName: person.name,
       by,
+      byId,
       note,
       createdAt: now,
       status: 'aktif',
@@ -114,7 +115,7 @@ export function passOn(state, a) {
 /** Yeni kişi ekler; kişi kendi kıdeminin sırasının sonuna girer. */
 export function addPerson(state, { id, name, seniorityId }) {
   const order = state.people.reduce((m, p) => Math.max(m, p.order), 0) + 1;
-  return { ...state, people: [...state.people, { id, name, seniorityId, order, active: true }] };
+  return { ...state, people: [...state.people, { id, name, seniorityId, order, active: true, pinHash: null }] };
 }
 
 /** Kişiyi kendi kıdem sırasında bir yukarı (-1) veya aşağı (+1) taşır. */

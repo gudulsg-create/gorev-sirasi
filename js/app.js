@@ -7,16 +7,41 @@ let backend;
 let data = null; // { state, assignments }
 let tab = 'give';
 let historyFilter = 'all';
-const ME_KEY = 'gorev-sirasi:me';
-const ME_ID_KEY = 'gorev-sirasi:me-id';
-let me = '';
-let meId = '';
-try {
-  me = localStorage.getItem(ME_KEY) || '';
-  meId = localStorage.getItem(ME_ID_KEY) || '';
-} catch { /* yoksay */ }
-/** Ekipteki kaydım (varsa). */
-const mePerson = () => (data && meId ? S().people.find((p) => p.id === meId) : null);
+// Oturum: bu cihazda giriş yapan kişi ve doğrulanmış PIN özeti.
+// Başasistan kişinin PIN'ini değiştirirse özet tutmaz ve oturum kendiliğinden kapanır.
+const SESSION_KEY = 'gorev-sirasi:session';
+let session = null;
+try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { /* yoksay */ }
+function saveSession(next) {
+  session = next;
+  try {
+    if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch { /* yoksay */ }
+}
+/** En üst kıdem (listede ilk sıradaki, ör. Başasistan) yönetici sayılır. */
+const adminSenId = () => S().seniorities[0]?.id;
+/** Giriş yapmış ve PIN'i hâlâ geçerli olan kişi. */
+function mePerson() {
+  if (!data || !session) return null;
+  const p = S().people.find((x) => x.id === session.personId);
+  return p && p.pinHash && p.pinHash === session.pinHash ? p : null;
+}
+const isAdmin = () => !!mePerson() && mePerson().seniorityId === adminSenId();
+/** Henüz PIN'i olan bir başasistan yoksa ilk kurulum aşamasıdır. */
+const setupMode = () => !S().people.some((p) => p.seniorityId === adminSenId() && p.pinHash);
+/** Ekip ve ayarları değiştirme yetkisi: başasistan (ya da ekip henüz boşsa herkes). */
+const canManage = () => isAdmin() || !S().people.length;
+const canPassOn = (a) => isAdmin() || (!!mePerson() && a.byId === mePerson().id);
+const canToggleDone = (a) => isAdmin() || (!!mePerson() && (a.byId === mePerson().id || a.personId === mePerson().id));
+
+async function hashPin(personId, pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`gorev-sirasi:${personId}:${pin}`));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const PIN_RE = /^[0-9]{4,6}$/;
+let pinFails = 0;
+let pinLockedUntil = 0;
 
 const view = document.getElementById('view');
 const dlg = document.getElementById('dlg');
@@ -75,7 +100,13 @@ async function run(fn, opts) {
   }
 }
 /** Yalnızca ekip ayarlarını değiştiren basit işlem. */
-const update = (mutator, msg) => run((s) => ({ state: mutator(s) })).then((r) => r && msg && toast(msg));
+const update = (mutator, msg) => {
+  if (!canManage()) {
+    toast('Bu değişikliği yalnızca başasistan yapabilir.');
+    return Promise.resolve(null);
+  }
+  return run((s) => ({ state: mutator(s) })).then((r) => r && msg && toast(msg));
+};
 
 function openDialog(title, body, { onSubmit, submitText = 'Kaydet', extra = [], cancelText = 'Vazgeç', cancelPrimary = false } = {}) {
   dlgForm.replaceChildren(...[
@@ -101,9 +132,13 @@ dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 // ---------- Görünümler ----------
 function render() {
   document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-  const mp = mePerson();
-  document.getElementById('me-btn').textContent = mp ? `👤 ${mp.name} · ${senName(mp.seniorityId)}` : me ? `👤 ${me}` : '👤 Ben kimim?';
+  const mp = data ? mePerson() : null;
+  document.getElementById('me-btn').textContent = mp ? `👤 ${mp.name} · ${senName(mp.seniorityId)}` : '🔒 Giriş yap';
   if (!data) return;
+  if (S().people.length && !mp) {
+    view.replaceChildren(loginView());
+    return;
+  }
   const views = { give: giveView, history: historyView, team: teamView, settings: settingsView };
   view.replaceChildren(views[tab]());
 }
@@ -175,14 +210,14 @@ function chooseSeniority(type) {
 }
 
 async function give(type, sen, note) {
-  if (!me) {
+  const mp = mePerson();
+  if (!mp) {
     dlg.close();
-    await askName();
-    if (!me) return;
+    return openLogin();
   }
-  if (!allowedSeniorities(S(), mePerson()?.id).includes(sen.id)) return toast('Yalnızca alt kıdemlere görev verebilirsin.');
+  if (!allowedSeniorities(S(), mp.id).includes(sen.id)) return toast('Yalnızca alt kıdemlere görev verebilirsin.');
   const r = await run((state) => {
-    const out = assign(state, type.id, sen.id, { id: uid(), by: mePerson()?.name ?? me, note });
+    const out = assign(state, type.id, sen.id, { id: uid(), by: mp.name, byId: mp.id, note });
     return { state: out.state, add: out.assignment };
   });
   if (!r) return;
@@ -200,13 +235,14 @@ function showResult(a) {
     cancelText: 'Tamam',
     cancelPrimary: true,
     extra: [
-      h('button', { type: 'button', class: 'btn danger-ghost', onclick: () => doCancel(a, true) }, 'Geri al'),
-      h('button', { type: 'button', class: 'btn', onclick: () => doPassOn(a, true) }, 'Sonrakine aktar'),
-    ],
+      isAdmin() && h('button', { type: 'button', class: 'btn danger-ghost', onclick: () => doCancel(a, true) }, 'Geri al'),
+      canPassOn(a) && h('button', { type: 'button', class: 'btn', onclick: () => doPassOn(a, true) }, 'Sonrakine aktar'),
+    ].filter(Boolean),
   });
 }
 
 async function doCancel(a, fromResult = false) {
+  if (!isAdmin()) return toast('Görevleri yalnızca başasistan iptal edebilir.');
   if (!fromResult && !(await askConfirm(`${a.typeName} → ${a.personName} görevi iptal edilsin mi?`, 'İptal et'))) return;
   const r = await run((state, cur) => {
     if (!cur) throw new Error('Kayıt bulunamadı.');
@@ -219,6 +255,7 @@ async function doCancel(a, fromResult = false) {
 }
 
 async function doPassOn(a, fromResult = false) {
+  if (!canPassOn(a)) return toast('Görevi yalnızca veren kişi ya da başasistan aktarabilir.');
   if (!fromResult && !(await askConfirm(`${a.personName} müsait değil mi? Görev sıradaki kişiye aktarılsın.`, 'Aktar'))) return;
   const r = await run((state, cur) => {
     if (!cur) throw new Error('Kayıt bulunamadı.');
@@ -231,6 +268,7 @@ async function doPassOn(a, fromResult = false) {
 }
 
 async function toggleDone(a) {
+  if (!canToggleDone(a)) return toast('Bunu yalnızca görevi alan, veren ya da başasistan değiştirebilir.');
   await run(() => ({ patch: { status: a.status === 'tamamlandı' ? 'aktif' : 'tamamlandı' } }), { assignmentId: a.id });
 }
 
@@ -244,10 +282,10 @@ function assignmentItem(a, { compact = false } = {}) {
       a.skipped?.length ? h('span', { class: 'muted small' }, `↪ ${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
       a.note ? h('span', { class: 'note' }, a.note) : null,
     ),
-    !compact && a.status !== 'iptal' && h('div', { class: 'asg-actions' },
-      h('button', { class: 'btn small', onclick: () => toggleDone(a) }, a.status === 'tamamlandı' ? 'Geri aç' : 'Tamamlandı'),
-      a.status === 'aktif' && h('button', { class: 'btn small', onclick: () => doPassOn(a) }, 'Aktar'),
-      h('button', { class: 'btn small danger-ghost', onclick: () => doCancel(a) }, 'İptal'),
+    !compact && a.status !== 'iptal' && (canToggleDone(a) || canPassOn(a) || isAdmin()) && h('div', { class: 'asg-actions' },
+      canToggleDone(a) && h('button', { class: 'btn small', onclick: () => toggleDone(a) }, a.status === 'tamamlandı' ? 'Geri aç' : 'Tamamlandı'),
+      a.status === 'aktif' && canPassOn(a) && h('button', { class: 'btn small', onclick: () => doPassOn(a) }, 'Aktar'),
+      isAdmin() && h('button', { class: 'btn small danger-ghost', onclick: () => doCancel(a) }, 'İptal'),
     ),
   );
 }
@@ -290,28 +328,32 @@ function teamView() {
     },
   }, name, sen, h('button', { class: 'btn primary' }, 'Ekle'));
 
+  const manage = canManage();
   return h('section', {},
-    h('h2', {}, 'Asistan ekle'),
-    form,
+    manage ? h('h2', {}, 'Asistan ekle') : null,
+    manage ? form : h('p', { class: 'muted small' }, 'Ekibi yalnızca başasistan düzenleyebilir.'),
     s.seniorities.map((x) => {
       const q = queueOf(s, x.id);
       return h('div', { class: 'sen-group' },
         h('h2', {}, `${x.name} `, h('span', { class: 'muted' }, `(${q.length})`)),
-        q.length ? h('ul', { class: 'people' }, q.map((p, i) => personRow(p, i, q.length))) : h('p', { class: 'muted small' }, 'Bu kıdemde kimse yok.'),
+        q.length ? h('ul', { class: 'people' }, q.map((p, i) => personRow(p, i, q.length, manage))) : h('p', { class: 'muted small' }, 'Bu kıdemde kimse yok.'),
       );
     }),
     h('p', { class: 'hint' }, 'Sıra yukarıdan aşağıya ilerler. "İzinli" işaretlenen kişi, işaret kaldırılana kadar tüm sıralarda atlanır.'),
   );
 }
 
-function personRow(p, i, n) {
+function personRow(p, i, n, manage) {
   const c = countsFor(p.id);
   const summary = S().taskTypes.map((t) => c[t.id] ? `${t.name.split(' ')[0]} ${c[t.id]}` : null).filter(Boolean).join(' · ');
+  const main = h('div', { class: 'person-main' },
+    h('strong', {}, p.name, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
+    h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
+  );
+  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, main);
   return h('li', { class: `person ${p.active === false ? 'away' : ''}` },
-    h('div', { class: 'person-main' },
-      h('strong', {}, p.name),
-      h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
-    ),
+    main,
+    h('button', { class: `pin-btn ${p.pinHash ? 'has' : ''}`, title: p.pinHash ? 'PIN var · yenisini ata' : 'PIN yok · ata', onclick: () => setPinFor(p) }, p.pinHash ? '🔑' : '🔑?'),
     h('label', { class: 'switch', title: 'İzinli / müsait değil' },
       h('input', { type: 'checkbox', checked: p.active === false, onchange: (e) => {
         const away = e.target.checked;
@@ -365,7 +407,22 @@ function editableList(title, items, { onRename, onDelete, onAdd, addPlaceholder 
 
 function settingsView() {
   const s = S();
+  const connBlock = h('div', { class: 'settings-block' },
+    h('h2', {}, 'Bağlantı'),
+    backend.kind === 'firebase'
+      ? h('p', {}, `✅ Firebase'e bağlı (ekip: ${teamId}). Değişiklikler herkese anında yansır.`)
+      : h('p', {}, '📱 Yerel mod: veriler yalnızca bu cihazda. Ekipçe ortak sıra için README\'deki Firebase kurulumunu yapın.'),
+  );
+  const accountBlock = mePerson() && h('div', { class: 'settings-block' },
+    h('h2', {}, 'Hesabım'),
+    h('p', {}, `${mePerson().name} · ${senName(mePerson().seniorityId)}`),
+    h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
+  );
+  if (!canManage()) {
+    return h('section', {}, accountBlock, h('p', { class: 'muted small' }, 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.'), connBlock);
+  }
   return h('section', {},
+    accountBlock,
     editableList('Görev türleri', s.taskTypes, {
       addPlaceholder: 'ör. Konsültasyon',
       onRename: (t, name) => update((st) => ({ ...st, taskTypes: st.taskTypes.map((x) => (x.id === t.id ? { ...x, name } : x)) }), 'Kaydedildi'),
@@ -400,12 +457,7 @@ function settingsView() {
         h('label', { class: 'btn' }, 'İçe aktar', h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: importJson })),
       ),
     ),
-    h('div', { class: 'settings-block' },
-      h('h2', {}, 'Bağlantı'),
-      backend.kind === 'firebase'
-        ? h('p', {}, `✅ Firebase'e bağlı (ekip: ${teamId}). Değişiklikler herkese anında yansır.`)
-        : h('p', {}, '📱 Yerel mod: veriler yalnızca bu cihazda. Ekipçe ortak sıra için README\'deki Firebase kurulumunu yapın.'),
-    ),
+    connBlock,
   );
 }
 
@@ -419,6 +471,7 @@ function exportJson() {
 }
 
 async function importJson(e) {
+  if (!canManage()) return toast('İçe aktarmayı yalnızca başasistan yapabilir.');
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
@@ -427,62 +480,147 @@ async function importJson(e) {
     const ok = parsed?.state && Array.isArray(parsed.state.people) && Array.isArray(parsed.state.taskTypes) && Array.isArray(parsed.state.seniorities);
     if (!ok) throw new Error('Dosya bu uygulamaya ait görünmüyor.');
     if (!(await askConfirm('Mevcut verinin yerine dosyadaki veri yüklensin mi?', 'Yükle'))) return;
-    await backend.replaceAll({ state: { ...defaultState(), ...parsed.state }, assignments: parsed.assignments || [] });
+    const people = parsed.state.people.map((p) => ({ ...p, pinHash: p.pinHash ?? null }));
+    await backend.replaceAll({ state: { ...defaultState(), ...parsed.state, people }, assignments: parsed.assignments || [] });
     toast('İçe aktarıldı');
-    if (!mePerson() && S().people.length) setTimeout(askName, 300);
+    if (!mePerson() && S().people.length) setTimeout(openLogin, 300);
   } catch (err) {
     toast('Dosya okunamadı: ' + err.message);
   }
 }
 
-// ---------- Ben kimim ----------
-function askName() {
-  return new Promise((resolve) => {
-    const people = data ? S().people : [];
-    const custom = h('input', { name: 'me', maxlength: '40', value: mePerson() ? '' : me, placeholder: 'Adın (ör. Dr. Elif K.)', autocomplete: 'name' });
-    const customWrap = h('div', { class: 'field' }, custom);
-    const select = people.length && h('select', { name: 'who', 'aria-label': 'Ekipteki adın', onchange: () => {
-      customWrap.hidden = select.value !== '__other';
-      custom.required = select.value === '__other';
-    } },
-      h('option', { value: '' }, '— Seç —'),
-      S().seniorities.map((x) => {
-        const q = queueOf(S(), x.id);
-        return q.length ? h('optgroup', { label: x.name }, q.map((p) => h('option', { value: p.id, selected: p.id === meId }, p.name))) : null;
-      }),
-      h('option', { value: '__other', selected: !!me && !mePerson() }, 'Listede yokum (hoca vb.)'),
-    );
-    if (select) {
-      select.required = true;
-      customWrap.hidden = select.value !== '__other';
-      custom.required = select.value === '__other';
-    } else custom.required = true;
-    const body = h('div', { class: 'form-grid' },
-      h('p', { class: 'muted' }, 'Verdiğin görevlerde "veren" olarak görünür ve yalnızca senin altındaki kıdemlere görev verebilmeni sağlar. Bu cihazda saklanır.'),
-      select || null,
-      customWrap,
-    );
-    openDialog('Ben kimim?', body, {
-      onSubmit: (fd) => {
-        const who = fd.get('who');
-        const person = who && who !== '__other' ? S().people.find((p) => p.id === who) : null;
-        meId = person ? person.id : '';
-        me = person ? person.name : (fd.get('me') || '').trim();
-        if (!me) return false;
-        try {
-          localStorage.setItem(ME_KEY, me);
-          localStorage.setItem(ME_ID_KEY, meId);
-        } catch { /* yoksay */ }
-        render();
-      },
-    });
-    dlg.addEventListener('close', () => resolve(me), { once: true });
+// ---------- Giriş ve PIN ----------
+function loginView() {
+  return h('div', { class: 'empty' },
+    h('p', { class: 'lead' }, '🔒 Devam etmek için giriş yap.'),
+    h('p', {}, setupMode()
+      ? 'İlk kurulum: başasistan adını seçip kendine bir PIN belirlemeli. Diğerlerinin PIN\'lerini sonra o atayacak.'
+      : 'Adını seç ve başasistanın sana verdiği PIN\'i gir.'),
+    h('button', { class: 'btn primary', onclick: openLogin }, 'Giriş yap'),
+  );
+}
+
+function pinInput(name, placeholder, required = true) {
+  return h('input', { name, type: 'password', inputmode: 'numeric', pattern: '[0-9]{4,6}', minlength: '4', maxlength: '6', placeholder, autocomplete: 'off', required, title: '4–6 rakam' });
+}
+
+function openLogin() {
+  const s = S();
+  const info = h('p', { class: 'muted small' });
+  const pin = pinInput('pin', 'PIN');
+  const pin2 = pinInput('pin2', 'PIN (tekrar)', false);
+  const pin2Wrap = h('div', { class: 'field' }, pin2);
+  const select = h('select', { name: 'who', required: true, 'aria-label': 'Adın', onchange: () => sync() },
+    h('option', { value: '' }, '— Adını seç —'),
+    s.seniorities.map((x) => {
+      const q = queueOf(s, x.id);
+      return q.length ? h('optgroup', { label: x.name }, q.map((p) => h('option', { value: p.id }, p.name))) : null;
+    }),
+  );
+  function sync() {
+    const p = S().people.find((x) => x.id === select.value);
+    const bootstrap = !!p && !p.pinHash && p.seniorityId === adminSenId() && setupMode();
+    pin2Wrap.hidden = !bootstrap;
+    pin2.required = bootstrap;
+    pin.disabled = !!p && !p.pinHash && !bootstrap;
+    info.textContent = !p ? 'Adını seç ve PIN\'ini gir.'
+      : bootstrap ? 'İlk kurulum: kendine 4–6 haneli bir PIN belirle. Diğerlerinin PIN\'lerini Ekip sekmesinden sen atayacaksın.'
+      : !p.pinHash ? 'Henüz PIN\'in yok. Başasistandan PIN iste.'
+      : 'PIN\'ini gir.';
+  }
+  sync();
+  openDialog('Giriş', h('div', { class: 'form-grid' }, select, pin, pin2Wrap, info), {
+    submitText: 'Giriş',
+    onSubmit: async (fd) => {
+      const p = S().people.find((x) => x.id === fd.get('who'));
+      if (!p) return false;
+      if (Date.now() < pinLockedUntil) {
+        toast(`Çok fazla yanlış deneme. ${Math.ceil((pinLockedUntil - Date.now()) / 1000)} sn bekle.`);
+        return false;
+      }
+      const pinV = fd.get('pin') || '';
+      if (!PIN_RE.test(pinV)) { toast('PIN 4–6 rakamdan oluşmalı.'); return false; }
+      const hash = await hashPin(p.id, pinV);
+      if (!p.pinHash) {
+        if (!(p.seniorityId === adminSenId() && setupMode())) { toast('Henüz PIN\'in yok; başasistandan iste.'); return false; }
+        if (pinV !== fd.get('pin2')) { toast('PIN\'ler aynı değil.'); return false; }
+        const r = await run((st) => {
+          if (st.people.some((x) => x.seniorityId === st.seniorities[0]?.id && x.pinHash)) throw new Error('Başasistan PIN\'i zaten belirlenmiş.');
+          return { state: { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, pinHash: hash } : x)) } };
+        });
+        if (!r) return false;
+      } else if (hash !== p.pinHash) {
+        pinFails += 1;
+        if (pinFails >= 5) { pinLockedUntil = Date.now() + 30000; pinFails = 0; }
+        toast('PIN yanlış.');
+        return false;
+      }
+      pinFails = 0;
+      saveSession({ personId: p.id, pinHash: hash });
+      render();
+      toast(`Hoş geldin, ${p.name}`);
+    },
+  });
+}
+
+/** Kendi PIN'ini değiştirme. Başka biri olarak işlem yapmak mümkün değil; oturum bu kişiye bağlı. */
+function openAccount() {
+  const mp = mePerson();
+  if (!mp) return openLogin();
+  const body = h('div', { class: 'form-grid' },
+    h('p', {}, h('strong', {}, mp.name), ` · ${senName(mp.seniorityId)}`),
+    h('p', { class: 'muted small' }, 'Bu cihazda bu adla giriş yapıldı. PIN\'ini değiştirmek için mevcut PIN\'ini gir.'),
+    pinInput('old', 'Mevcut PIN'),
+    pinInput('new1', 'Yeni PIN'),
+    pinInput('new2', 'Yeni PIN (tekrar)'),
+  );
+  openDialog('Hesabım', body, {
+    submitText: 'PIN\'i değiştir',
+    onSubmit: async (fd) => {
+      const me = mePerson();
+      if (!me) return;
+      if ((await hashPin(me.id, fd.get('old'))) !== me.pinHash) { toast('Mevcut PIN yanlış.'); return false; }
+      if (fd.get('new1') !== fd.get('new2')) { toast('Yeni PIN\'ler aynı değil.'); return false; }
+      const hash = await hashPin(me.id, fd.get('new1'));
+      const prev = session;
+      saveSession({ personId: me.id, pinHash: hash }); // ekran yenilenmeden önce yeni oturumu yaz
+      const r = await run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === me.id ? { ...x, pinHash: hash } : x)) } }));
+      if (!r) { saveSession(prev); render(); return false; }
+      render();
+      toast('PIN değiştirildi');
+    },
+  });
+}
+
+/** Başasistan: bir kişiye yeni PIN atar. Kişinin açık oturumları kapanır. */
+function setPinFor(p) {
+  if (!isAdmin()) return toast('PIN\'leri yalnızca başasistan atayabilir.');
+  const suggested = String(Math.floor(1000 + Math.random() * 9000));
+  const input = h('input', { name: 'pin', inputmode: 'numeric', pattern: '[0-9]{4,6}', minlength: '4', maxlength: '6', required: true, value: suggested, autocomplete: 'off', class: 'pin-show' });
+  const body = h('div', { class: 'form-grid' },
+    h('p', {}, h('strong', {}, p.name), p.pinHash ? ' için yeni PIN. Eski PIN geçersiz olur ve açık oturumu kapanır.' : ' için PIN.'),
+    input,
+    h('small', { class: 'muted' }, 'Bu PIN\'i kişiye kendin ilet. Kaydettikten sonra bir daha gösterilmez.'),
+  );
+  openDialog('PIN ata', body, {
+    onSubmit: async (fd) => {
+      const pin = fd.get('pin');
+      if (!PIN_RE.test(pin)) { toast('PIN 4–6 rakamdan oluşmalı.'); return false; }
+      const hash = await hashPin(p.id, pin);
+      const self = p.id === mePerson()?.id;
+      const prev = session;
+      if (self) saveSession({ personId: p.id, pinHash: hash });
+      const r = await run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, pinHash: hash } : x)) } }));
+      if (!r) { if (self) saveSession(prev); render(); return false; }
+      render();
+      toast(`${p.name} için PIN kaydedildi: ${pin}`);
+    },
   });
 }
 
 // ---------- Başlat ----------
 document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
-document.getElementById('me-btn').addEventListener('click', askName);
+document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
 (async function start() {
   const conn = document.getElementById('conn');
@@ -502,7 +640,7 @@ document.getElementById('me-btn').addEventListener('click', askName);
     data = d;
     if (first) {
       first = false;
-      if (!me && S().people.length) setTimeout(askName, 0);
+      if (!mePerson() && S().people.length) setTimeout(openLogin, 0);
     }
     // Kullanıcı sayfada bir alana yazarken başkasından gelen güncelleme yazdığını silmesin.
     const el = document.activeElement;

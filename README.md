@@ -37,6 +37,22 @@ Firebase ayarlanmazsa uygulama **yerel mod**da çalışır: veriler yalnızca o 
 
 Ayarlar → **İçe aktar** ile ekip dosyasını (JSON) bir kez yükleyin. Firebase bağlıysa ekip herkese görünür. Ekip, Ekip sekmesinden elle de girilebilir.
 
+## Giriş, PIN ve yetkiler
+
+- Herkes adını seçip **PIN**'iyle giriş yapar. Giriş yapan kişi o cihazda sabittir; başka biri olarak işlem yapılamaz.
+- **İlk kurulum:** Ekip yüklendikten sonra **başasistan** adını seçip kendine PIN belirler. Diğerlerinin PIN'lerini **Ekip** sekmesindeki 🔑 düğmesiyle o atar ve kişiye kendisi iletir.
+- Başasistan bir kişinin PIN'ini yeniden atarsa o kişinin açık oturumları kapanır. Her kullanıcı kendi PIN'ini **Ayarlar → Hesabım** bölümünden değiştirebilir.
+- Yetkiler:
+  - Görev verme: giriş yapan herkes, yalnızca alt kıdemlere.
+  - Görev **iptali / geri alma**: yalnızca başasistan.
+  - Sonrakine aktarma: görevi veren kişi veya başasistan.
+  - Tamamlandı işareti: görevi alan, veren veya başasistan.
+  - Ekip, izin, sıra, görev türleri, kıdemler, içe aktarma: yalnızca başasistan.
+- Başasistan = **Kıdemler** listesinin en üstündeki kıdem. "Yeni dönem" ile kıdemler kayınca yeni başasistan bu yetkileri kendi PIN'iyle devralır.
+- 5 yanlış PIN denemesinden sonra giriş 30 saniye kilitlenir.
+
+> **Not:** PIN kontrolü tarayıcıda yapılır. Günlük kullanımda başkası adına işlem yapmayı engeller, ama tarayıcı geliştirici araçlarını bilen biri bu kontrolü aşabilir. Sunucu tarafında zorunlu kimlik doğrulaması gerekirse "Google ile giriş" eklenebilir.
+
 ## Güvenlik ve gizlilik
 
 - Uygulama adresini bilen herkes görev verebilir ve listeyi görebilir. Adresi yalnızca ekiple paylaşın.

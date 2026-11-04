@@ -23,6 +23,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.4; }
 h1, h2 { margin: 0; line-height: 1.2; }
 h2 { font-size: 1rem; margin: 1.4rem 0 0.6rem; }
@@ -157,3 +158,8 @@ dialog.confirm p { margin: 0; font-size: 1rem; }
 .result ~ .dlg-actions { flex-direction: column-reverse; align-items: stretch; }
 .result ~ .dlg-actions .spacer { display: none; }
 .result ~ .dlg-actions .btn { padding: 12px; font-size: 1rem; }
+
+/* PIN */
+.pin-btn { font: inherit; font-size: 0.8rem; height: 34px; min-width: 40px; padding: 0 8px; border-radius: 8px; border: 1px dashed var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--text); cursor: pointer; }
+.pin-btn.has { border: 1px solid var(--line); background: var(--surface); }
+.pin-show { font-size: 1.6rem !important; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }

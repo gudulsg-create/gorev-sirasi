@@ -229,6 +229,7 @@ function giveView() {
   }
   const recent = data.assignments.filter((a) => a.status !== 'iptal').slice(0, 5);
   return h('section', {},
+    installHint(),
     monthCard(),
     h('p', { class: 'lead' }, 'Vermek istediğin görevi seç:'),
     h('div', { class: 'type-grid' },
@@ -238,6 +239,32 @@ function giveView() {
     nextTable(),
     recent.length ? h('h2', {}, 'Son verilenler') : null,
     recent.length ? h('ul', { class: 'asg-list' }, recent.map((a) => assignmentItem(a, { compact: true }))) : null,
+  );
+}
+
+// --- Ana ekrana ekle ipucu ---
+const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; render(); });
+window.addEventListener('appinstalled', () => { deferredInstall = null; render(); });
+function installHint() {
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('gorev-sirasi:install-hint') === 'kapali'; } catch { /* yoksay */ }
+  if (isStandalone() || dismissed) return null;
+  const close = h('button', { class: 'icon-btn hint-close', 'aria-label': 'Kapat', onclick: () => {
+    try { localStorage.setItem('gorev-sirasi:install-hint', 'kapali'); } catch { /* yoksay */ }
+    render();
+  } }, '✕');
+  const body = deferredInstall
+    ? h('button', { class: 'btn primary small', onclick: async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); } }, 'Ana ekrana ekle')
+    : isIOS()
+      ? h('span', { class: 'small' }, 'Safari\'de alttaki ', h('strong', {}, 'Paylaş (□↑)'), ' → ', h('strong', {}, 'Ana Ekrana Ekle'), '.')
+      : h('span', { class: 'small' }, 'Tarayıcı menüsünden (⋮) ', h('strong', {}, 'Ana ekrana ekle'), '.');
+  return h('div', { class: 'install-hint' },
+    h('img', { src: 'icons/icon-192.png', alt: '', width: 40, height: 40 }),
+    h('div', { class: 'hint-text' }, h('strong', {}, '📲 Uygulama gibi kullan'), body),
+    close,
   );
 }
 
@@ -799,13 +826,19 @@ function setPinFor(p) {
 document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
 document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* yoksay */ });
+}
+
 (async function start() {
   const conn = document.getElementById('conn');
   try {
     backend = await createBackend(firebaseConfig, teamId);
   } catch (err) {
     console.error(err);
-    view.replaceChildren(empty('Firebase\'e bağlanılamadı: ' + err.message + ' — firebase-config.js ayarlarını ve internet bağlantısını kontrol edin.'));
+    view.replaceChildren(navigator.onLine === false
+      ? empty('📡 İnternet bağlantısı yok. Bağlantı gelince sayfayı yenileyin.', 'Yenile', () => location.reload())
+      : empty('Firebase\'e bağlanılamadı: ' + err.message + ' — internet bağlantısını kontrol edip sayfayı yenileyin.', 'Yenile', () => location.reload()));
     conn.textContent = '⚠️ Bağlantı hatası';
     return;
   }

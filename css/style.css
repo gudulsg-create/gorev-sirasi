@@ -198,3 +198,9 @@ dialog.confirm p { margin: 0; font-size: 1rem; }
 .leader-list li.top { background: color-mix(in srgb, #ffd54a 25%, var(--surface)); }
 .leader-list .rank { width: 24px; text-align: center; font-weight: 700; }
 .leader-name { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Ana ekrana ekle ipucu */
+.install-hint { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.install-hint img { border-radius: 10px; flex: none; }
+.hint-text { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.hint-close { flex: none; width: 30px; height: 30px; }

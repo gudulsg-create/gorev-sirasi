@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Uygulamayı açan herkes (anonim oturum) ekip verisini okuyup yazabilir.
+// Ekip belgesinin adı (teamId) bilinmeden liste alınamaz.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /teams/{teamId} {
+      allow get, create, update: if request.auth != null;
+
+      match /assignments/{assignmentId} {
+        allow read, create, update: if request.auth != null;
+      }
+    }
+  }
+}

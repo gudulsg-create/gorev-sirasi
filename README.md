@@ -41,6 +41,7 @@ Ayarlar → **İçe aktar** ile ekip dosyasını (JSON) bir kez yükleyin. Fireb
 
 - Herkes adını seçip **PIN**'iyle giriş yapar. Giriş yapan kişi o cihazda sabittir; başka biri olarak işlem yapılamaz.
 - **İlk kurulum:** Ekip yüklendikten sonra **başasistan** adını seçip kendine PIN belirler. Diğerlerinin PIN'lerini **Ekip** sekmesindeki 🔑 düğmesiyle o atar ve kişiye kendisi iletir.
+- **Çıkış:** Üstteki isim düğmesi → **Çıkış yap** (ya da Ayarlar → Hesabım). Ortak bilgisayarlarda iş bitince çıkış yapın; tekrar girmek PIN gerektirir.
 - Başasistan bir kişinin PIN'ini yeniden atarsa o kişinin açık oturumları kapanır. Her kullanıcı kendi PIN'ini **Ayarlar → Hesabım** bölümünden değiştirebilir.
 - Yetkiler:
   - Görev verme: giriş yapan herkes, yalnızca alt kıdemlere.

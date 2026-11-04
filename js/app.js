@@ -416,7 +416,10 @@ function settingsView() {
   const accountBlock = mePerson() && h('div', { class: 'settings-block' },
     h('h2', {}, 'Hesabım'),
     h('p', {}, `${mePerson().name} · ${senName(mePerson().seniorityId)}`),
-    h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
+    h('div', { class: 'row wrap' },
+      h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
+      h('button', { class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'),
+    ),
   );
   if (!canManage()) {
     return h('section', {}, accountBlock, h('p', { class: 'muted small' }, 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.'), connBlock);
@@ -563,6 +566,17 @@ function openLogin() {
   });
 }
 
+/** Bu cihazdaki oturumu kapatır. Tekrar girmek için PIN gerekir. */
+async function logout() {
+  if (dlg.open) dlg.close();
+  const mp = mePerson();
+  if (!(await askConfirm(`${mp ? mp.name + ' olarak açık oturum' : 'Oturum'} bu cihazda kapatılsın mı? Tekrar girmek için PIN gerekir.`, 'Çıkış yap'))) return;
+  saveSession(null);
+  tab = 'give';
+  render();
+  toast('Oturum kapatıldı');
+}
+
 /** Kendi PIN'ini değiştirme. Başka biri olarak işlem yapmak mümkün değil; oturum bu kişiye bağlı. */
 function openAccount() {
   const mp = mePerson();
@@ -575,6 +589,7 @@ function openAccount() {
     pinInput('new2', 'Yeni PIN (tekrar)'),
   );
   openDialog('Hesabım', body, {
+    extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap')],
     submitText: 'PIN\'i değiştir',
     onSubmit: async (fd) => {
       const me = mePerson();

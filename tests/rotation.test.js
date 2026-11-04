@@ -158,3 +158,26 @@ test('girdi durumunu değiştirmez', () => {
   passOn(r.state, r.assignment);
   assert.equal(JSON.stringify(s), before);
 });
+
+import { monthKey, bumpStat, ranking, winners, prevMonth } from '../js/rotation.js';
+
+test('ayın elemanı: sayaç, sıralama, eşitlik', () => {
+  let s = team();
+  s = bumpStat(s, '2026-11', 'ali', 1);
+  s = bumpStat(s, '2026-11', 'ali', 1);
+  s = bumpStat(s, '2026-11', 'can', 2);
+  s = bumpStat(s, '2026-11', 'ayse', 1);
+  assert.deepEqual(ranking(s, '2026-11').map((x) => x.personId), ['ali', 'can', 'ayse']);
+  assert.deepEqual(winners(s, '2026-11').map((x) => x.personId), ['ali', 'can']);
+  s = bumpStat(s, '2026-11', 'can', -1);
+  assert.deepEqual(winners(s, '2026-11').map((x) => x.personId), ['ali']);
+  s = bumpStat(s, '2026-11', 'ayse', -5);
+  assert.equal(s.stats['2026-11'].ayse, undefined);
+  assert.deepEqual(winners(s, '2026-10'), []);
+});
+
+test('ay anahtarları', () => {
+  assert.equal(monthKey(new Date(2026, 10, 4).getTime()), '2026-11');
+  assert.equal(prevMonth('2026-01'), '2025-12');
+  assert.equal(prevMonth('2026-11'), '2026-10');
+});

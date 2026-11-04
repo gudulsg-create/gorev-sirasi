@@ -1,6 +1,6 @@
 import { firebaseConfig, teamId } from './firebase-config.js';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -229,6 +229,7 @@ function giveView() {
   }
   const recent = data.assignments.filter((a) => a.status !== 'iptal').slice(0, 5);
   return h('section', {},
+    monthCard(),
     h('p', { class: 'lead' }, 'Vermek istediğin görevi seç:'),
     h('div', { class: 'type-grid' },
       s.taskTypes.map((t) => h('button', { class: 'type-btn', onclick: () => chooseSeniority(t) }, t.name)),
@@ -238,6 +239,77 @@ function giveView() {
     recent.length ? h('h2', {}, 'Son verilenler') : null,
     recent.length ? h('ul', { class: 'asg-list' }, recent.map((a) => assignmentItem(a, { compact: true }))) : null,
   );
+}
+
+// --- Ayın elemanı ---
+const monthLabel = (m) => {
+  const [y, mo] = m.split('-').map(Number);
+  return new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(new Date(y, mo - 1, 1));
+};
+const personById = (id) => S().people.find((p) => p.id === id);
+/** Geçen ayın kazananları (ekipte olmayanlar dahil isimleri kayıtlardan bulunur). */
+function lastMonthWinnerIds() {
+  return winners(S(), prevMonth(monthKey(Date.now()))).map((w) => w.personId);
+}
+
+function monthCard() {
+  const s = S();
+  const cur = monthKey(Date.now());
+  const prev = prevMonth(cur);
+  const won = winners(s, prev);
+  const top = ranking(s, cur).slice(0, 3);
+  if (!won.length && !top.length) {
+    return h('div', { class: 'month-card empty-card' },
+      h('span', { class: 'trophy' }, '🏆'),
+      h('div', {}, h('strong', {}, 'Ayın elemanı'), h('p', { class: 'muted small' }, 'Ay boyunca "Tamamlandı" işaretlenen görevler sayılır; en çok tamamlayan ayın elemanı olur.')),
+    );
+  }
+  return h('button', { class: 'month-card', onclick: () => openLeaderboard(won.length ? prev : cur) },
+    won.length
+      ? h('div', { class: 'winner' },
+        h('div', { class: 'winner-photos' }, won.map((w) => avatar(personById(w.personId) || { id: w.personId, name: '?' }, 52))),
+        h('div', {},
+          h('span', { class: 'month-tag' }, `🏆 ${monthLabel(prev)} ayının elemanı`),
+          h('strong', { class: 'winner-name' }, won.map((w) => personById(w.personId)?.name ?? 'Eski ekip üyesi').join(', ')),
+          h('span', { class: 'muted small' }, `${won[0].count} görev tamamladı`),
+        ),
+      )
+      : h('div', { class: 'winner' }, h('span', { class: 'trophy' }, '🏆'), h('div', {}, h('span', { class: 'month-tag' }, 'Ayın elemanı'), h('strong', {}, `${monthLabel(cur)} yarışı sürüyor`))),
+    top.length ? h('div', { class: 'race' },
+      h('span', { class: 'muted small' }, `Bu ay (${monthLabel(cur)}):`),
+      top.map((x, i) => h('span', { class: 'race-item' }, `${['🥇', '🥈', '🥉'][i]} `, avatar(personById(x.personId) || { id: x.personId, name: '?' }, 20), ` ${personById(x.personId)?.name.split(' ')[0] ?? '?'} ${x.count}`)),
+    ) : null,
+  );
+}
+
+function openLeaderboard(month) {
+  const s = S();
+  const months = Object.keys(s.stats || {}).filter((m) => ranking(s, m).length);
+  const cur = monthKey(Date.now());
+  if (!months.includes(cur)) months.push(cur);
+  months.sort().reverse();
+  const list = h('ol', { class: 'leader-list' });
+  const select = h('select', { 'aria-label': 'Ay', onchange: () => fill(select.value) },
+    months.map((m) => h('option', { value: m, selected: m === month }, monthLabel(m) + (m === cur ? ' (bu ay)' : ''))));
+  function fill(m) {
+    const r = ranking(s, m);
+    const topCount = r[0]?.count;
+    list.replaceChildren(...(r.length ? r.map((x, i) => {
+      const p = personById(x.personId);
+      return h('li', { class: x.count === topCount ? 'top' : '' },
+        h('span', { class: 'rank' }, x.count === topCount ? '🏆' : String(i + 1)),
+        avatar(p || { id: x.personId, name: '?' }, 36),
+        h('span', { class: 'leader-name' }, p?.name ?? 'Eski ekip üyesi', p ? h('small', { class: 'muted' }, senName(p.seniorityId)) : null),
+        h('strong', {}, String(x.count)),
+      );
+    }) : [h('li', { class: 'muted' }, 'Bu ay henüz tamamlanan görev yok.')]));
+  }
+  fill(month);
+  openDialog('Ayın elemanı', h('div', { class: 'form-grid' },
+    select,
+    list,
+    h('small', { class: 'muted' }, '"Tamamlandı" olarak işaretlenen görevler, görevin verildiği aya sayılır. Eşitlikte birden fazla kişi ayın elemanı olur.'),
+  ), { cancelText: 'Kapat' });
 }
 
 function nextTable() {
@@ -324,7 +396,8 @@ async function doCancel(a, fromResult = false) {
   const r = await run((state, cur) => {
     if (!cur) throw new Error('Kayıt bulunamadı.');
     const out = cancel(state, cur);
-    return { state: out.state, patch: out.patch, restored: out.restored };
+    const next = cur.status === 'tamamlandı' ? bumpStat(out.state, monthKey(cur.createdAt), cur.personId, -1) : out.state;
+    return { state: next, patch: out.patch, restored: out.restored };
   }, { assignmentId: a.id });
   if (!r) return;
   if (dlg.open) dlg.close();
@@ -346,7 +419,15 @@ async function doPassOn(a, fromResult = false) {
 
 async function toggleDone(a) {
   if (!canToggleDone(a)) return toast('Bunu yalnızca görevi alan, veren ya da başasistan değiştirebilir.');
-  await run(() => ({ patch: { status: a.status === 'tamamlandı' ? 'aktif' : 'tamamlandı' } }), { assignmentId: a.id });
+  const r = await run((state, cur) => {
+    if (!cur) throw new Error('Kayıt bulunamadı.');
+    if (cur.status === 'iptal') throw new Error('İptal edilmiş görev değiştirilemez.');
+    const done = cur.status !== 'tamamlandı';
+    // Ayın elemanı sayacı: görevin verildiği aya, görevi alan kişiye yazılır.
+    const next = bumpStat(state, monthKey(cur.createdAt), cur.personId, done ? 1 : -1);
+    return { state: next, patch: { status: done ? 'tamamlandı' : 'aktif', completedAt: done ? Date.now() : null }, done };
+  }, { assignmentId: a.id });
+  if (r) toast(r.done ? 'Tamamlandı olarak işaretlendi' : 'Yeniden açıldı');
 }
 
 function assignmentItem(a, { compact = false } = {}) {
@@ -424,7 +505,7 @@ function personRow(p, i, n, manage) {
   const c = countsFor(p.id);
   const summary = S().taskTypes.map((t) => c[t.id] ? `${t.name.split(' ')[0]} ${c[t.id]}` : null).filter(Boolean).join(' · ');
   const main = h('div', { class: 'person-main' },
-    h('strong', {}, p.name, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
+    h('strong', {}, p.name, lastMonthWinnerIds().includes(p.id) ? h('span', { title: 'Geçen ayın elemanı' }, ' 🏆') : null, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
     h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
   );
   if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, avatar(p, 36), main);

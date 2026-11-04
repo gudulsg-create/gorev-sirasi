@@ -159,3 +159,43 @@ export function promoteAll(state) {
     .filter((p) => p.seniorityId);
   return { ...state, people, pointers: {} };
 }
+
+// ---------- Ayın elemanı ----------
+/** Bir zaman damgasının ay anahtarı (yerel saat), ör. "2026-11". */
+export function monthKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Tamamlanan görev sayacını artırır/azaltır (sıfırın altına inmez). */
+export function bumpStat(state, month, personId, delta) {
+  const stats = { ...(state.stats || {}) };
+  const m = { ...(stats[month] || {}) };
+  const v = Math.max(0, (m[personId] || 0) + delta);
+  if (v) m[personId] = v;
+  else delete m[personId];
+  stats[month] = m;
+  return { ...state, stats };
+}
+
+/** Bir ayın sıralaması: [{ personId, count }] çoktan aza; eşitlikte isim sırası. */
+export function ranking(state, month) {
+  const m = (state.stats || {})[month] || {};
+  const name = (id) => state.people.find((p) => p.id === id)?.name ?? '';
+  return Object.entries(m)
+    .filter(([, c]) => c > 0)
+    .map(([personId, count]) => ({ personId, count }))
+    .sort((a, b) => b.count - a.count || name(a.personId).localeCompare(name(b.personId), 'tr'));
+}
+
+/** Ayın elemanı (eşitlikte birden fazla kişi olabilir). */
+export function winners(state, month) {
+  const r = ranking(state, month);
+  return r.length ? r.filter((x) => x.count === r[0].count) : [];
+}
+
+/** Bir önceki ayın anahtarı. */
+export function prevMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}

@@ -19,6 +19,13 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 - Görev türleri ve kıdem adları Ayarlar sekmesinden değiştirilebilir. Kıdemler en kıdemliden en yeniye doğru sıralanır.
 - Aynı anda iki kişi görev verirse Firestore işlemi (transaction) sayesinde ikisi aynı kişiye düşmez.
 
+## Ayın elemanı
+
+- "Tamamlandı" olarak işaretlenen her görev, görevi alan kişiye ve görevin **verildiği aya** sayılır. Ay sonunda en çok görev tamamlayan **ayın elemanı** olur; eşitlikte birden fazla kişi seçilir.
+- Görev ver sayfasının üstünde geçen ayın elemanı (fotoğrafıyla) ve bu ayın ilk üçü görünür. Karta dokununca ay ay tam sıralama açılır.
+- Geçen ayın elemanının adının yanında Ekip listesinde 🏆 görünür.
+- "Geri aç" ya da tamamlanmış görevin iptali sayacı geri düşürür. Sayılar ekip verisinde ay ay saklanır; geçmiş listesi uzasa da kaybolmaz.
+
 ## Firebase kurulumu (ekipçe ortak kullanım, ~10 dakika, ücretsiz)
 
 Firebase ayarlanmazsa uygulama **yerel mod**da çalışır: veriler yalnızca o cihazda kalır.

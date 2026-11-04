@@ -177,3 +177,24 @@ dialog.confirm p { margin: 0; font-size: 1rem; }
 .cell-who { display: inline-flex; align-items: center; gap: 6px; }
 .photo-picker { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
 .photo-picker .btn { cursor: pointer; }
+
+/* Ayın elemanı */
+.month-card { display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; margin-bottom: 16px; padding: 14px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, #e0a800 45%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, #ffd54a 22%, var(--surface)), var(--surface) 70%); box-shadow: var(--shadow); }
+.month-card.empty-card { flex-direction: row; align-items: center; cursor: default; }
+.month-card.empty-card p { margin: 2px 0 0; }
+.trophy { font-size: 2rem; line-height: 1; }
+.winner { display: flex; align-items: center; gap: 12px; }
+.winner > div:last-child { display: flex; flex-direction: column; min-width: 0; }
+.winner-photos { display: flex; }
+.winner-photos .av { border: 3px solid #f2c230; }
+.winner-photos .av + .av { margin-left: -14px; }
+.month-tag { font-size: 0.78rem; font-weight: 600; color: #a57a00; }
+@media (prefers-color-scheme: dark) { .month-tag { color: #f2c230; } }
+.winner-name { font-size: 1.1rem; }
+.race { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding-top: 8px; border-top: 1px dashed var(--line); }
+.race-item { display: inline-flex; align-items: center; gap: 2px; font-size: 0.85rem; }
+.leader-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.leader-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--soft); }
+.leader-list li.top { background: color-mix(in srgb, #ffd54a 25%, var(--surface)); }
+.leader-list .rank { width: 24px; text-align: center; font-weight: 700; }
+.leader-name { flex: 1; display: flex; flex-direction: column; min-width: 0; }

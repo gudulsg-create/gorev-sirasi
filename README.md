@@ -25,6 +25,13 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 - **Teslim tarihi:** Görev verirken isteğe bağlı "Son gün" seçilir (Bugün / Yarın / 3 gün / 1 hafta ya da takvimden). Son günü geçen açık görevler kırmızı "Gecikti" etiketiyle görünür.
 - **Tarihli izin:** Başasistan Ekip → ✎ → *Tarihli izin* bölümünden tarih aralığı ekler. Kişi o tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner. Ekip listesinde "İzinde" / "Planlı izin" olarak görünür.
 
+## Tekrarlayan görevler
+
+- Başasistan **Ayarlar → Tekrarlayan görevler** bölümünden tanımlar: görev, kıdem, sıklık (ayda/haftada bir), sıradaki tarih (son gün) ve kaç gün önce verileceği.
+- Zamanı gelince görev o kıdemde sırası gelen kişiye **kendiliğinden** verilir (veren: 🔁 Otomatik), son gün olarak tekrar tarihi yazılır ve sonraki tarih ileri alınır. Ekipten giriş yapmış herhangi birinin uygulamayı açması yeterlidir; aynı tekrar için ikinci görev oluşmaz.
+- **Dönüşümlü görev:** "Her N. seferde farklı görev" seçeneğiyle örneğin her ay *internetten uzatma*, her 3. ay *kütüphanede yüz yüze uzatma* verilir. Yüz yüze için ayrı görev türü seçilirse onun sırası da ayrı döner; kütüphaneye gitme işi ekipte adil dağılır.
+- Görev ver sayfasında **Yaklaşan otomatik görevler** listesi, bir sonraki görevin ne olduğunu ve kime gideceğini gösterir.
+
 ## Emoji tepkileri
 
 - Her görevin altındaki **☺︎+** ile 👍 🙏 ✅ 💪 👏 🔥 ❤️ 😂 😅 🤔 tepkilerinden biri verilir. Yazı girilemez; yalnızca bu listeden seçilir.

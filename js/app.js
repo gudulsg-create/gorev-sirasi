@@ -1,6 +1,6 @@
 import { firebaseConfig, teamId } from './firebase-config.js';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -255,6 +255,7 @@ function giveView() {
     ),
     h('h2', {}, 'Sıradakiler'),
     nextTable(),
+    upcomingRecurring(),
     recent.length ? h('h2', {}, 'Son verilenler') : null,
     recent.length ? h('ul', { class: 'asg-list' }, recent.map((a) => assignmentItem(a, { compact: true }))) : null,
   );
@@ -355,6 +356,152 @@ function openLeaderboard(month) {
     list,
     h('small', { class: 'muted' }, '"Tamamlandı" olarak işaretlenen görevler, görevin verildiği aya sayılır. Eşitlikte birden fazla kişi ayın elemanı olur.'),
   ), { cancelText: 'Kapat' });
+}
+
+// --- Tekrarlayan görevler ---
+const recurLabel = (r) => `${r.every} ${r.unit === 'week' ? 'haftada' : 'ayda'} bir` + (r.altEvery > 1 ? ` · her ${r.altEvery}. seferde: ${typeName(r.altTypeId || r.typeId)}${r.altNote ? ' (' + r.altNote + ')' : ''}` : '');
+function upcomingRecurring() {
+  const s = S();
+  const list = (s.recurring || []).filter((r) => r.active !== false).sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+  if (!list.length) return null;
+  return h('div', {},
+    h('h2', {}, '🔁 Yaklaşan otomatik görevler'),
+    h('ul', { class: 'recur-list' }, list.map((r) => {
+      const kind = occurrenceKind(r);
+      const n = nextPerson(s, kind.typeId, r.seniorityId);
+      return h('li', { class: kind.alt ? 'alt' : '' },
+        h('div', { class: 'recur-main' },
+          h('strong', {}, `${kind.alt ? '🏛 ' : ''}${typeName(kind.typeId)} · ${senName(r.seniorityId)}`),
+          kind.note ? h('span', { class: 'small' }, kind.note) : null,
+          h('span', { class: 'muted small' }, `${fmtDay(issueDay(r))} günü verilecek · son gün ${fmtDay(r.nextDate)} · ${recurLabel(r)}`),
+        ),
+        n ? h('span', { class: 'cell-who small' }, avatar(n, 22), n.name.split(' ')[0]) : h('span', { class: 'muted small' }, 'Müsait yok'),
+      );
+    })),
+  );
+}
+
+let recurRunning = false;
+/** Zamanı gelen tekrarlayan görevleri verir. Giriş yapmış herhangi bir kullanıcının cihazı tetikleyebilir; işlem çift görev oluşturmaz. */
+async function checkRecurring() {
+  if (recurRunning || !data || !mePerson()) return;
+  const due = dueRecurring(S());
+  if (!due.length) return;
+  recurRunning = true;
+  try {
+    for (const r of due) {
+      try {
+        const out = await backend.transact((state) => {
+          const res = runRecurring(state, r.id, { id: uid() });
+          return res ? { state: res.state, add: res.assignment } : {};
+        });
+        if (out?.add) toast(`🔁 Otomatik görev: ${out.add.typeName} → ${out.add.personName}`);
+      } catch (err) {
+        if (isAdmin()) toast(`Otomatik görev verilemedi (${typeName(r.typeId)}): ${err.message}`);
+      }
+    }
+  } finally {
+    recurRunning = false;
+  }
+}
+
+/** "Her N. seferde farklı görev" bölümü (ör. her 3. ay yüz yüze). */
+function altBox(r) {
+  const s = S();
+  const on = h('input', { type: 'checkbox', name: 'altOn', checked: r.altEvery > 1, onchange: () => { inner.hidden = !on.checked; } });
+  const typeSel = h('select', { name: 'altTypeId' },
+    h('option', { value: '' }, 'Aynı görev (sadece not farklı)'),
+    s.taskTypes.map((t) => h('option', { value: t.id, selected: t.id === r.altTypeId }, t.name)));
+  const makeType = h('button', { type: 'button', class: 'btn small', onclick: async () => {
+    const base = typeName(dlgForm.querySelector('select[name=typeId]')?.value) || 'Görev';
+    const name = `${base} (yüz yüze)`;
+    const existing = S().taskTypes.find((t) => t.name === name);
+    const id = existing?.id || uid();
+    if (!existing) await update((st) => ({ ...st, taskTypes: [...st.taskTypes, { id, name }] }), `"${name}" görev türü eklendi`);
+    if (![...typeSel.options].some((o) => o.value === id)) typeSel.append(h('option', { value: id }, name));
+    typeSel.value = id;
+  } }, '+ Ayrı “yüz yüze” görev türü oluştur');
+  const inner = h('div', { class: 'form-grid', hidden: !(r.altEvery > 1) },
+    h('div', { class: 'row' }, h('span', {}, 'Her'), h('input', { name: 'altEvery', type: 'number', min: '2', max: '12', value: String(r.altEvery > 1 ? r.altEvery : 3), style: 'width:70px' }), h('span', {}, '. seferde şu görev verilsin:')),
+    typeSel,
+    makeType,
+    h('small', { class: 'muted' }, 'Ayrı görev türü seçilirse onun sırası da ayrı döner; böylece kütüphaneye gitme işi de ekipte adil dağılır.'),
+    h('input', { name: 'altNote', maxlength: '80', value: r.altNote || '', placeholder: 'ör. Yüz yüze: kütüphaneye gidilecek' }),
+  );
+  return h('fieldset', { class: 'leave-box' },
+    h('legend', {}, 'Dönüşümlü görev'),
+    h('label', { class: 'lock' }, on, 'Belirli aralıklarla farklı görev ver (ör. her 3. ay yüz yüze)'),
+    inner,
+  );
+}
+
+function editRecurring(r) {
+  const s = S();
+  const isNew = !r;
+  const kitap = s.taskTypes.find((t) => /kitap/i.test(t.name) && !/yüz/i.test(t.name));
+  const yuzyuze = s.taskTypes.find((t) => /yüz yüze/i.test(t.name));
+  r = r ?? { typeId: kitap?.id ?? s.taskTypes[0]?.id, seniorityId: s.seniorities[s.seniorities.length - 1]?.id, every: 1, unit: 'month', nextDate: '', leadDays: 3, note: 'İnternetten uzatma', active: true,
+    altEvery: 3, altTypeId: yuzyuze?.id || '', altNote: 'Yüz yüze: kütüphaneye gidilecek' };
+  const sel = (name, items, val) => h('select', { name }, items.map((x) => h('option', { value: x.id, selected: x.id === val }, x.name)));
+  const field = (label, el, help) => h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), el, help ? h('small', { class: 'muted' }, help) : null);
+  const body = h('div', { class: 'form-grid' },
+    field('Görev', sel('typeId', s.taskTypes, r.typeId)),
+    field('Hangi kıdeme', sel('seniorityId', s.seniorities, r.seniorityId), 'Görev bu kıdemde sırası gelen kişiye verilir.'),
+    h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Ne sıklıkla'),
+      h('div', { class: 'row' },
+        h('input', { name: 'every', type: 'number', min: '1', max: '24', required: true, value: String(r.every), style: 'width:80px' }),
+        h('select', { name: 'unit' }, h('option', { value: 'month', selected: r.unit !== 'week' }, 'ayda bir'), h('option', { value: 'week', selected: r.unit === 'week' }, 'haftada bir')),
+      )),
+    field('Sıradaki tarih (son gün)', h('input', { name: 'nextDate', type: 'date', required: true, value: r.nextDate }), 'Örn. kütüphaneye gidilmesi gereken gün.'),
+    field('Kaç gün önce verilsin', h('input', { name: 'leadDays', type: 'number', min: '0', max: '60', required: true, value: String(r.leadDays) })),
+    field('Not (isteğe bağlı)', h('input', { name: 'note', maxlength: '80', value: r.note || '', placeholder: 'ör. İnternetten uzatma' })),
+    altBox(r),
+    !isNew ? h('label', { class: 'lock' }, h('input', { type: 'checkbox', name: 'active', checked: r.active !== false }), 'Etkin') : null,
+  );
+  openDialog(isNew ? 'Tekrarlayan görev ekle' : 'Tekrarlayan görevi düzenle', body, {
+    extra: !isNew ? [h('button', { type: 'button', class: 'btn danger-ghost', onclick: async () => {
+      dlg.close();
+      if (!(await askConfirm('Bu tekrarlayan görev silinsin mi? Daha önce verilen görevler kalır.', 'Sil'))) return;
+      update((st) => ({ ...st, recurring: (st.recurring || []).filter((x) => x.id !== r.id) }), 'Silindi');
+    } }, 'Sil')] : [],
+    onSubmit: async (fd) => {
+      const altOn = fd.get('altOn') === 'on';
+      const item = {
+        altEvery: altOn ? Math.max(2, Math.min(12, Number(fd.get('altEvery')) || 3)) : 0,
+        altTypeId: altOn ? (fd.get('altTypeId') || '') : '',
+        altNote: altOn ? (fd.get('altNote') || '').trim() : '',
+        seq: r.seq || 0,
+        id: r.id || uid(),
+        typeId: fd.get('typeId'),
+        seniorityId: fd.get('seniorityId'),
+        every: Math.max(1, Math.min(24, Number(fd.get('every')) || 1)),
+        unit: fd.get('unit') === 'week' ? 'week' : 'month',
+        nextDate: fd.get('nextDate'),
+        leadDays: Math.max(0, Math.min(60, Number(fd.get('leadDays')) || 0)),
+        note: (fd.get('note') || '').trim(),
+        active: isNew ? true : fd.get('active') === 'on',
+        lastRun: r.lastRun || null,
+      };
+      await update((st) => ({ ...st, recurring: isNew ? [...(st.recurring || []), item] : (st.recurring || []).map((x) => (x.id === item.id ? item : x)) }), 'Kaydedildi');
+      setTimeout(checkRecurring, 300);
+    },
+  });
+}
+
+function recurringBlock() {
+  const list = S().recurring || [];
+  return h('div', { class: 'settings-block' },
+    h('h2', {}, '🔁 Tekrarlayan görevler'),
+    h('p', { class: 'muted small' }, 'Belirli aralıklarla yapılan işler (ör. 3 ayda bir kütüphanede kitap uzatma). Tarih yaklaşınca görev sıradaki kişiye kendiliğinden verilir.'),
+    list.length ? h('ul', { class: 'recur-list' }, list.map((r) => h('li', {},
+      h('div', { class: 'recur-main' },
+        h('strong', {}, `${typeName(r.typeId)} · ${senName(r.seniorityId)}`, r.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'Kapalı') : null),
+        h('span', { class: 'muted small' }, `${recurLabel(r)} · sıradaki: ${fmtDay(r.nextDate)} (${r.leadDays} gün önce verilir)`),
+      ),
+      h('button', { class: 'icon-btn', 'aria-label': 'Düzenle', onclick: () => editRecurring(r) }, '✎'),
+    ))) : null,
+    h('button', { class: 'btn', onclick: () => editRecurring() }, '+ Tekrarlayan görev ekle'),
+  );
 }
 
 function nextTable() {
@@ -747,6 +894,7 @@ function settingsView() {
       },
       onAdd: (name) => update((st) => ({ ...st, taskTypes: [...st.taskTypes, { id: uid(), name }] }), `${name} eklendi`),
     }),
+    recurringBlock(),
     editableList('Kıdemler (en kıdemliden en yeniye)', s.seniorities, {
       addPlaceholder: 'ör. 6. kıdem',
       onRename: (x, name) => update((st) => ({ ...st, seniorities: st.seniorities.map((y) => (y.id === x.id ? { ...y, name } : y)) }), 'Kaydedildi'),
@@ -874,6 +1022,7 @@ function openLogin() {
       saveSession({ personId: p.id, pinHash: hash });
       render();
       toast(`Hoş geldin, ${p.name}`);
+      setTimeout(checkRecurring, 500);
     },
   });
 }
@@ -986,5 +1135,6 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
       return;
     }
     render();
+    checkRecurring();
   });
 })();

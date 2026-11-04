@@ -222,3 +222,64 @@ test('emoji tepkileri: tek tepki, tekrar dokununca kalkar, yazı reddedilir', ()
   assert.throws(() => setReaction(r, 'ali', '👍 süper'), /Yalnızca listedeki emojiler/);
   assert.ok(REACTIONS.length >= 8);
 });
+
+import { addMonths, dueRecurring, runRecurring, issueDay } from '../js/rotation.js';
+
+test('tekrarlayan görev: 3 ayda bir, sıradakine verilir, tarih ilerler', () => {
+  assert.equal(addMonths('2026-11-30', 3), '2027-02-28');
+  assert.equal(addMonths('2026-01-31', 1), '2026-02-28');
+  let s = team();
+  s = { ...s, recurring: [{ id: 'r1', typeId: 'kitap', seniorityId: 'k5', every: 3, unit: 'month', nextDate: '2026-12-15', leadDays: 3, note: 'Kütüphane' }] };
+  assert.equal(issueDay(s.recurring[0]), '2026-12-12');
+  assert.equal(dueRecurring(s, '2026-12-11').length, 0);
+  assert.equal(dueRecurring(s, '2026-12-12').length, 1);
+  const r = runRecurring(s, 'r1', { id: 'a1', today: '2026-12-12', now: new Date(2026, 11, 12).getTime() });
+  assert.equal(r.assignment.personName, 'Ali');
+  assert.equal(r.assignment.dueDate, '2026-12-15');
+  assert.equal(r.assignment.by, '🔁 Otomatik');
+  assert.equal(r.state.recurring[0].nextDate, '2027-03-15');
+  // aynı gün ikinci çalıştırma bir şey yapmaz (çift görev olmaz)
+  assert.equal(runRecurring(r.state, 'r1', { today: '2026-12-12' }), null);
+  // sonraki tur sıradaki kişiye
+  const r2 = runRecurring(r.state, 'r1', { id: 'a2', today: '2027-03-12', now: new Date(2027, 2, 12).getTime() });
+  assert.equal(r2.assignment.personName, 'Ayşe');
+});
+
+test('tekrarlayan görev: uzun süre açılmazsa tek görev verilir, tarih geleceğe atlar', () => {
+  let s = { ...team(), recurring: [{ id: 'r1', typeId: 'kitap', seniorityId: 'k5', every: 1, unit: 'month', nextDate: '2026-01-10', leadDays: 0 }] };
+  const r = runRecurring(s, 'r1', { id: 'a1', today: '2026-04-20', now: new Date(2026, 3, 20).getTime() });
+  assert.equal(r.assignment.dueDate, '2026-04-20');
+  assert.equal(r.state.recurring[0].nextDate, '2026-05-10');
+});
+
+import { occurrenceKind } from '../js/rotation.js';
+
+test('her ay internetten, her 3. ay yüz yüze (ayrı görev türü ve sıra)', () => {
+  let s = team();
+  s = { ...s, taskTypes: [...s.taskTypes, { id: 'kitap-yy', name: 'Kitap uzatmak (yüz yüze)' }] };
+  s = { ...s, recurring: [{ id: 'r1', typeId: 'kitap', seniorityId: 'k5', every: 1, unit: 'month', nextDate: '2026-12-01', leadDays: 0, note: 'İnternetten', altEvery: 3, altTypeId: 'kitap-yy', altNote: 'Kütüphaneye gidilecek' }] };
+  const got = [];
+  let today = '2026-12-01';
+  for (let i = 0; i < 6; i++) {
+    const r = runRecurring(s, 'r1', { id: 'a' + i, today, now: new Date(today + 'T10:00').getTime() });
+    s = r.state;
+    got.push(`${r.assignment.typeName}|${r.assignment.personName}|${r.assignment.note}`);
+    today = s.recurring[0].nextDate;
+  }
+  assert.deepEqual(got, [
+    'Kitap uzatmak|Ali|İnternetten',
+    'Kitap uzatmak|Ayşe|İnternetten',
+    'Kitap uzatmak (yüz yüze)|Ali|Kütüphaneye gidilecek', // yüz yüze sırası ayrı: baştan Ali
+    'Kitap uzatmak|Can|İnternetten',
+    'Kitap uzatmak|Ali|İnternetten',
+    'Kitap uzatmak (yüz yüze)|Ayşe|Kütüphaneye gidilecek',
+  ]);
+  assert.equal(occurrenceKind(s.recurring[0]).alt, false); // 7. tekrar internetten
+});
+
+test('aynı görev türü ile yalnızca not farklı olabilir', () => {
+  const r = { typeId: 'kitap', note: 'İnternet', altEvery: 3, altNote: 'Yüz yüze' };
+  assert.deepEqual(occurrenceKind(r, 3), { alt: true, typeId: 'kitap', note: 'Yüz yüze' });
+  assert.deepEqual(occurrenceKind(r, 4), { alt: false, typeId: 'kitap', note: 'İnternet' });
+  assert.equal(occurrenceKind({ typeId: 'x' }, 3).alt, false);
+});

@@ -247,3 +247,61 @@ export function groupReactions(reactions) {
   }
   return out;
 }
+
+// ---------- Tekrarlayan görevler ----------
+/** "YYYY-MM-DD" tarihine ay ekler; ay sonu taşmalarını son güne sabitler (31 Oca + 1 ay = 28/29 Şub). */
+export function addMonths(day, n) {
+  const [y, m, d] = day.split('-').map(Number);
+  const target = new Date(y, m - 1 + n, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d, last));
+  return dayKey(target.getTime());
+}
+export function addDaysTo(day, n) {
+  const [y, m, d] = day.split('-').map(Number);
+  return dayKey(new Date(y, m - 1, d + n).getTime());
+}
+/** Bir sonraki tekrar tarihi. */
+export function nextOccurrence(r, day = r.nextDate) {
+  return r.unit === 'week' ? addDaysTo(day, 7 * r.every) : addMonths(day, r.every);
+}
+/** Görevin verileceği gün = tarih − kaç gün önce. */
+export const issueDay = (r) => addDaysTo(r.nextDate, -(r.leadDays || 0));
+
+/**
+ * n. tekrarın hangi görev olacağı. altEvery verilmişse her altEvery. tekrar "farklı" görevdir
+ * (ör. her ay internetten uzatma, her 3. ay kütüphanede yüz yüze).
+ */
+export function occurrenceKind(r, n = (r.seq || 0) + 1) {
+  const alt = r.altEvery > 1 && n % r.altEvery === 0;
+  return alt
+    ? { alt: true, typeId: r.altTypeId || r.typeId, note: r.altNote || r.note || '' }
+    : { alt: false, typeId: r.typeId, note: r.note || '' };
+}
+
+/** Bugün verilmesi gereken tekrarlayan görevler. */
+export function dueRecurring(state, today = dayKey()) {
+  return (state.recurring || []).filter((r) => r.active !== false && issueDay(r) <= today);
+}
+
+/**
+ * Bir tekrarlayan görevi çalıştırır: sıradakine görevi verir, sonraki tarihi ileri alır.
+ * Uzun süre açılmadıysa kaçırılan tekrarlar için yalnızca bir görev verilir.
+ */
+export function runRecurring(state, recurringId, { id, now = Date.now(), today = dayKey(now) } = {}) {
+  const r = (state.recurring || []).find((x) => x.id === recurringId);
+  if (!r || r.active === false || issueDay(r) > today) return null; // başka biri zaten verdi
+  // Kaçırılan tekrarları atla; verilen görev en son kaçırılan tekrara göre belirlenir.
+  let seq = (r.seq || 0) + 1;
+  let next = nextOccurrence(r);
+  while (issueDay({ ...r, nextDate: next }) <= today) {
+    next = nextOccurrence(r, next);
+    seq += 1;
+  }
+  const kind = occurrenceKind(r, seq);
+  const out = assign(state, kind.typeId, r.seniorityId, {
+    id, now, by: '🔁 Otomatik', byId: null, note: kind.note, dueDate: r.nextDate < today ? today : r.nextDate,
+  });
+  const recurring = out.state.recurring.map((x) => (x.id === r.id ? { ...x, nextDate: next, lastRun: today, seq } : x));
+  return { state: { ...out.state, recurring }, assignment: { ...out.assignment, recurringId: r.id, recurringSeq: seq } };
+}

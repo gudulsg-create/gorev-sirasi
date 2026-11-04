@@ -246,3 +246,11 @@ input[type='date'] { min-height: 40px; }
 .react-pick { font-size: 1.35rem; height: 44px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
 .react-pick:hover, .react-pick.mine { background: color-mix(in srgb, var(--brand-2) 14%, var(--surface)); }
 .react-who { font-size: 0.75rem; }
+
+/* Tekrarlayan görevler */
+.recur-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.recur-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.settings-block .recur-list li { background: var(--soft); border: 0; }
+.recur-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.recur-list li.alt { border-color: #f0d77a; background: #fff8de; }
+@media (prefers-color-scheme: dark) { .recur-list li.alt { background: color-mix(in srgb, #f2c230 15%, var(--surface)); } }

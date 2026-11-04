@@ -50,6 +50,7 @@ Ayarlar → **İçe aktar** ile ekip dosyasını (JSON) bir kez yükleyin. Fireb
   - Tamamlandı işareti: görevi alan, veren veya başasistan.
   - Ekip, izin, sıra, görev türleri, kıdemler, içe aktarma: yalnızca başasistan.
 - Başasistan = **Kıdemler** listesinin en üstündeki kıdem. "Yeni dönem" ile kıdemler kayınca yeni başasistan bu yetkileri kendi PIN'iyle devralır.
+- **Profil fotoğrafı:** Herkes kendi fotoğrafını üstteki isim düğmesinden (Hesabım) ekler; başasistan Ekip → ✎ ile herkesinkini değiştirebilir. Fotoğraflar 160×160 piksele küçültülüp ekip verisinde saklanır (Firebase Storage gerekmez).
 - 5 yanlış PIN denemesinden sonra giriş 30 saniye kilitlenir.
 
 > **Not:** PIN kontrolü tarayıcıda yapılır. Günlük kullanımda başkası adına işlem yapmayı engeller, ama tarayıcı geliştirici araçlarını bilen biri bu kontrolü aşabilir. Sunucu tarafında zorunlu kimlik doğrulaması gerekirse "Google ile giriş" eklenebilir.

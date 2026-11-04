@@ -115,7 +115,7 @@ export function passOn(state, a) {
 /** Yeni kişi ekler; kişi kendi kıdeminin sırasının sonuna girer. */
 export function addPerson(state, { id, name, seniorityId }) {
   const order = state.people.reduce((m, p) => Math.max(m, p.order), 0) + 1;
-  return { ...state, people: [...state.people, { id, name, seniorityId, order, active: true, pinHash: null }] };
+  return { ...state, people: [...state.people, { id, name, seniorityId, order, active: true, pinHash: null, photo: null }] };
 }
 
 /** Kişiyi kendi kıdem sırasında bir yukarı (-1) veya aşağı (+1) taşır. */

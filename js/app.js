@@ -72,6 +72,78 @@ const typeName = (id) => S().taskTypes.find((t) => t.id === id)?.name ?? 'Silinm
 const senName = (id) => S().seniorities.find((s) => s.id === id)?.name ?? '—';
 const fmtDate = (ms) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
 
+// ---------- Profil fotoğrafı ----------
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+const COLORS = ['#2c6aa3', '#c9372c', '#2a9d6f', '#d98a1c', '#7b5ea7', '#c2185b', '#3d7a3d', '#8d6e63'];
+function colorFor(id = '') {
+  let n = 0;
+  for (const ch of id) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
+  return COLORS[n % COLORS.length];
+}
+function initialsOf(name = '') {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toLocaleUpperCase('tr')).join('');
+}
+/** Kişinin fotoğrafı (yoksa baş harfleri). p yoksa id/name ile de çalışır. */
+function avatar(p, size = 32, extraClass = '') {
+  const person = typeof p === 'string' ? data && S().people.find((x) => x.id === p) : p;
+  const style = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px`;
+  if (person?.photo && PHOTO_RE.test(person.photo)) {
+    return h('img', { class: `av ${extraClass}`, src: person.photo, alt: '', style, loading: 'lazy' });
+  }
+  return h('span', { class: `av av-init ${extraClass}`, style: `${style};background:${colorFor(person?.id)}`, 'aria-hidden': 'true' }, initialsOf(person?.name || '?'));
+}
+/** Seçilen resmi ortadan kare kırpıp küçültür; ~5 KB'lık JPEG veri adresi döndürür. */
+async function makePhoto(file) {
+  if (!file || !file.type.startsWith('image/')) throw new Error('Lütfen bir resim dosyası seçin.');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('Resim açılamadı. JPEG veya PNG deneyin.'));
+      i.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 160;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 160, 160);
+    for (const q of [0.8, 0.65, 0.5, 0.4]) {
+      const out = canvas.toDataURL('image/jpeg', q);
+      if (out.length < 24000) return out;
+    }
+    return canvas.toDataURL('image/jpeg', 0.3);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+const canEditPhoto = (personId) => isAdmin() || mePerson()?.id === personId;
+/** Fotoğraf seçici + önizleme; değişince hemen kaydeder. */
+function photoPicker(p) {
+  const preview = h('span', { class: 'photo-preview' }, avatar(p, 72));
+  const savePhoto = async (photo) => {
+    if (!canEditPhoto(p.id)) return toast('Bu kişinin fotoğrafını değiştiremezsin.');
+    const r = await run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, photo } : x)) } }));
+    if (!r) return;
+    preview.replaceChildren(avatar({ ...p, photo }, 72));
+    removeBtn.hidden = !photo;
+    pickLabel.firstChild.textContent = photo ? 'Fotoğrafı değiştir' : 'Fotoğraf ekle';
+    toast(photo ? 'Fotoğraf kaydedildi' : 'Fotoğraf kaldırıldı');
+  };
+  const input = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try { await savePhoto(await makePhoto(file)); } catch (err) { toast(err.message); }
+  } });
+  const removeBtn = h('button', { type: 'button', class: 'btn small danger-ghost', hidden: !p.photo, onclick: () => savePhoto(null) }, 'Kaldır');
+  const pickLabel = h('label', { class: 'btn small' }, p.photo ? 'Fotoğrafı değiştir' : 'Fotoğraf ekle', input);
+  return h('div', { class: 'photo-picker' },
+    preview,
+    h('div', { class: 'row wrap' }, pickLabel, removeBtn),
+  );
+}
+
 let toastTimer;
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -133,7 +205,9 @@ dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 function render() {
   document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   const mp = data ? mePerson() : null;
-  document.getElementById('me-btn').textContent = mp ? `👤 ${mp.name} · ${senName(mp.seniorityId)}` : '🔒 Giriş yap';
+  const meBtn = document.getElementById('me-btn');
+  if (mp) meBtn.replaceChildren(avatar(mp, 24), h('span', { class: 'me-text' }, `${mp.name} · ${senName(mp.seniorityId)}`));
+  else meBtn.textContent = '🔒 Giriş yap';
   if (!data) return;
   if (S().people.length && !mp) {
     view.replaceChildren(loginView());
@@ -176,7 +250,10 @@ function nextTable() {
       h('thead', {}, h('tr', {}, h('th', {}, ''), sens.map((x) => h('th', {}, x.name)))),
       h('tbody', {}, s.taskTypes.map((t) => h('tr', {},
         h('th', { scope: 'row' }, t.name),
-        sens.map((x) => h('td', {}, nextPerson(s, t.id, x.id)?.name ?? h('span', { class: 'muted' }, '—'))),
+        sens.map((x) => {
+          const n = nextPerson(s, t.id, x.id);
+          return h('td', {}, n ? h('span', { class: 'cell-who' }, avatar(n, 22), n.name) : h('span', { class: 'muted' }, '—'));
+        }),
       ))),
     ),
   );
@@ -197,7 +274,7 @@ function chooseSeniority(type) {
         onclick: () => give(type, x, note.value.trim()),
       },
         h('strong', {}, x.name),
-        h('span', {}, !ok ? 'Üst / aynı kıdem' : next ? `Sıradaki: ${next.name}` : 'Müsait kimse yok'),
+        h('span', { class: 'sen-next' }, ok && next ? avatar(next, 24) : null, !ok ? 'Üst / aynı kıdem' : next ? `Sıradaki: ${next.name}` : 'Müsait kimse yok'),
       );
     }),
   );
@@ -226,7 +303,7 @@ async function give(type, sen, note) {
 
 function showResult(a) {
   const body = h('div', { class: 'result' },
-    h('div', { class: 'result-icon' }, '✓'),
+    h('div', { class: 'result-photo' }, avatar(a.personId, 96), h('span', { class: 'result-check' }, '✓')),
     h('p', { class: 'result-name' }, a.personName),
     h('p', { class: 'muted' }, `${a.typeName} · ${a.seniorityName}`),
     a.skipped?.length ? h('p', { class: 'muted small' }, `Aktarıldı: ${a.skipped.map((x) => x.personName).join(', ')} yerine`) : null,
@@ -276,7 +353,7 @@ function assignmentItem(a, { compact = false } = {}) {
   const status = { aktif: 'Verildi', tamamlandı: 'Tamamlandı', iptal: 'İptal' }[a.status] ?? a.status;
   return h('li', { class: `asg ${a.status === 'iptal' ? 'cancelled' : ''}` },
     h('div', { class: 'asg-main' },
-      h('div', { class: 'asg-title' }, h('strong', {}, a.personName), h('span', { class: `badge s-${a.status}` }, status)),
+      h('div', { class: 'asg-title' }, h('span', { class: 'asg-who' }, avatar(a.personId, 28), h('strong', {}, a.personName)), h('span', { class: `badge s-${a.status}` }, status)),
       h('span', {}, `${a.typeName} · ${a.seniorityName}`),
       h('span', { class: 'muted small' }, `${fmtDate(a.createdAt)}${a.by ? ' · veren: ' + a.by : ''}`),
       a.skipped?.length ? h('span', { class: 'muted small' }, `↪ ${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
@@ -350,8 +427,9 @@ function personRow(p, i, n, manage) {
     h('strong', {}, p.name, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
     h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
   );
-  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, main);
+  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, avatar(p, 36), main);
   return h('li', { class: `person ${p.active === false ? 'away' : ''}` },
+    avatar(p, 36),
     main,
     h('button', { class: `pin-btn ${p.pinHash ? 'has' : ''}`, title: p.pinHash ? 'PIN var · yenisini ata' : 'PIN yok · ata', onclick: () => setPinFor(p) }, p.pinHash ? '🔑' : '🔑?'),
     h('label', { class: 'switch', title: 'İzinli / müsait değil' },
@@ -372,6 +450,7 @@ function personRow(p, i, n, manage) {
 function editPerson(p) {
   const s = S();
   const body = h('div', { class: 'form-grid' },
+    photoPicker(p),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ad soyad'), h('input', { name: 'name', required: true, maxlength: '60', value: p.name })),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Kıdem'),
       h('select', { name: 'sen' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === p.seniorityId }, x.name)))),
@@ -416,6 +495,7 @@ function settingsView() {
   const accountBlock = mePerson() && h('div', { class: 'settings-block' },
     h('h2', {}, 'Hesabım'),
     h('p', {}, `${mePerson().name} · ${senName(mePerson().seniorityId)}`),
+    photoPicker(mePerson()),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
       h('button', { class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'),
@@ -583,7 +663,8 @@ function openAccount() {
   if (!mp) return openLogin();
   const body = h('div', { class: 'form-grid' },
     h('p', {}, h('strong', {}, mp.name), ` · ${senName(mp.seniorityId)}`),
-    h('p', { class: 'muted small' }, 'Bu cihazda bu adla giriş yapıldı. PIN\'ini değiştirmek için mevcut PIN\'ini gir.'),
+    photoPicker(mp),
+    h('p', { class: 'muted small' }, 'PIN\'ini değiştirmek için mevcut PIN\'ini gir.'),
     pinInput('old', 'Mevcut PIN'),
     pinInput('new1', 'Yeni PIN'),
     pinInput('new2', 'Yeni PIN (tekrar)'),

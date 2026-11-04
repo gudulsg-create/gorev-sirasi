@@ -221,3 +221,29 @@ export function prevMonth(month) {
   const [y, m] = month.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
+
+// ---------- Emoji tepkileri ----------
+/** İzin verilen tepkiler. Yazı girilemez; yalnızca bu listeden seçilir. */
+export const REACTIONS = ['👍', '🙏', '✅', '💪', '👏', '🔥', '❤️', '😂', '😅', '🤔'];
+
+/**
+ * Kişinin tepkisini ayarlar/kaldırır. Her kişinin bir görevde tek tepkisi olur;
+ * aynı emojiyi tekrar seçmek tepkiyi kaldırır. Listede olmayan değer reddedilir.
+ */
+export function setReaction(reactions, personId, emoji) {
+  if (!REACTIONS.includes(emoji)) throw new Error('Yalnızca listedeki emojiler kullanılabilir.');
+  const next = { ...(reactions || {}) };
+  if (next[personId] === emoji) delete next[personId];
+  else next[personId] = emoji;
+  return next;
+}
+
+/** Tepkileri emojiye göre gruplar: [{ emoji, ids: [...] }] (listedeki sırayla). */
+export function groupReactions(reactions) {
+  const out = [];
+  for (const e of REACTIONS) {
+    const ids = Object.entries(reactions || {}).filter(([, v]) => v === e).map(([k]) => k);
+    if (ids.length) out.push({ emoji: e, ids });
+  }
+  return out;
+}

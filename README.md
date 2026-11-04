@@ -25,6 +25,12 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 - **Teslim tarihi:** Görev verirken isteğe bağlı "Son gün" seçilir (Bugün / Yarın / 3 gün / 1 hafta ya da takvimden). Son günü geçen açık görevler kırmızı "Gecikti" etiketiyle görünür.
 - **Tarihli izin:** Başasistan Ekip → ✎ → *Tarihli izin* bölümünden tarih aralığı ekler. Kişi o tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner. Ekip listesinde "İzinde" / "Planlı izin" olarak görünür.
 
+## Emoji tepkileri
+
+- Her görevin altındaki **☺︎+** ile 👍 🙏 ✅ 💪 👏 🔥 ❤️ 😂 😅 🤔 tepkilerinden biri verilir. Yazı girilemez; yalnızca bu listeden seçilir.
+- Her kişinin bir görevde tek tepkisi olur; başka emojiye dokunmak değiştirir, aynı emojiye tekrar dokunmak kaldırır.
+- Kimin hangi tepkiyi verdiği görevin altında yazar. İptal edilmiş görevlere tepki verilemez.
+
 ## Ayın elemanı
 
 - "Tamamlandı" olarak işaretlenen her görev, görevi alan kişiye ve görevin **verildiği aya** sayılır. Ay sonunda en çok görev tamamlayan **ayın elemanı** olur; eşitlikte birden fazla kişi seçilir.

@@ -1,6 +1,6 @@
 import { firebaseConfig, teamId } from './firebase-config.js';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -484,6 +484,40 @@ async function toggleDone(a) {
   if (r) toast(r.done ? 'Tamamlandı olarak işaretlendi' : 'Yeniden açıldı');
 }
 
+// --- Emoji tepkileri ---
+let reactOpenFor = null; // tepki seçicisi açık olan görev
+async function react(a, emoji) {
+  const me = mePerson();
+  if (!me) return openLogin();
+  reactOpenFor = null;
+  await run((state, cur) => {
+    if (!cur) throw new Error('Kayıt bulunamadı.');
+    if (cur.status === 'iptal') throw new Error('İptal edilmiş göreve tepki verilemez.');
+    return { patch: { reactions: setReaction(cur.reactions, me.id, emoji) } };
+  }, { assignmentId: a.id });
+}
+function reactionBar(a) {
+  if (a.status === 'iptal') return null;
+  const me = mePerson();
+  const groups = groupReactions(a.reactions);
+  const nameOf = (id) => personById(id)?.name ?? 'Eski ekip üyesi';
+  const chips = groups.map((g) => h('button', {
+    class: `react-chip ${me && g.ids.includes(me.id) ? 'mine' : ''}`,
+    title: g.ids.map(nameOf).join(', '),
+    'aria-label': `${g.emoji} ${g.ids.length}: ${g.ids.map(nameOf).join(', ')}`,
+    onclick: () => react(a, g.emoji),
+  }, h('span', { class: 'react-emoji' }, g.emoji), h('span', { class: 'react-avs' }, g.ids.slice(0, 3).map((id) => avatar(id, 16))), g.ids.length > 3 ? h('span', { class: 'react-n' }, `+${g.ids.length - 3}`) : null));
+  const open = reactOpenFor === a.id;
+  const toggle = h('button', { class: `react-add ${open ? 'open' : ''}`, 'aria-label': 'Emoji ile tepki ver', 'aria-expanded': String(open), onclick: () => { reactOpenFor = open ? null : a.id; render(); } }, open ? '✕' : '☺︎+');
+  const who = groups.length ? h('span', { class: 'react-who muted' }, groups.map((g) => `${g.emoji} ${g.ids.map((id) => nameOf(id).split(' ')[0]).join(', ')}`).join(' · ')) : null;
+  return h('div', { class: 'react-wrap' },
+    h('div', { class: 'react-bar' }, chips, toggle),
+    open ? h('div', { class: 'react-picker', role: 'group', 'aria-label': 'Emoji seç' },
+      REACTIONS.map((e) => h('button', { class: `react-pick ${me && a.reactions?.[me.id] === e ? 'mine' : ''}`, onclick: () => react(a, e) }, e))) : null,
+    who,
+  );
+}
+
 function assignmentItem(a, { compact = false } = {}) {
   const status = { aktif: 'Verildi', tamamlandı: 'Tamamlandı', iptal: 'İptal' }[a.status] ?? a.status;
   const late = a.status === 'aktif' && a.dueDate && a.dueDate < dayKey();
@@ -496,6 +530,7 @@ function assignmentItem(a, { compact = false } = {}) {
       dueBadge(a),
       a.note ? h('span', { class: 'note' }, a.note) : null,
     ),
+    reactionBar(a),
     !compact && a.status !== 'iptal' && (canToggleDone(a) || canPassOn(a) || isAdmin()) && h('div', { class: 'asg-actions' },
       canToggleDone(a) && h('button', { class: 'btn small', onclick: () => toggleDone(a) }, a.status === 'tamamlandı' ? 'Geri aç' : 'Tamamlandı'),
       a.status === 'aktif' && canPassOn(a) && h('button', { class: 'btn small', onclick: () => doPassOn(a) }, 'Aktar'),

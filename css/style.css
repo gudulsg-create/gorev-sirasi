@@ -229,3 +229,20 @@ dialog form { overflow-x: hidden; }
 .leave-add input { flex: 1 1 130px; }
 .leave-add span { display: none; }
 input[type='date'] { min-height: 40px; }
+
+/* Emoji tepkileri */
+.react-wrap { display: flex; flex-direction: column; gap: 6px; }
+.react-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.react-chip, .react-add { font: inherit; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--soft); color: var(--text); cursor: pointer; }
+.react-chip.mine { border-color: var(--brand-2); background: color-mix(in srgb, var(--brand-2) 14%, var(--surface)); }
+.react-emoji { font-size: 1rem; line-height: 1; }
+.react-avs { display: inline-flex; }
+.react-avs .av { border: 1.5px solid var(--surface); }
+.react-avs .av + .av { margin-left: -5px; }
+.react-n { font-size: 0.75rem; color: var(--muted); }
+.react-add { color: var(--muted); font-size: 0.85rem; background: var(--surface); }
+.react-add.open { border-color: var(--brand-2); color: var(--brand-2); }
+.react-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); max-width: 300px; }
+.react-pick { font-size: 1.35rem; height: 44px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+.react-pick:hover, .react-pick.mine { background: color-mix(in srgb, var(--brand-2) 14%, var(--surface)); }
+.react-who { font-size: 0.75rem; }

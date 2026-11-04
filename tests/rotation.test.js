@@ -206,3 +206,19 @@ test('teslim tarihi kayda yazılır', () => {
   assert.equal(r.assignment.dueDate, '2026-11-10');
   assert.equal(assign(team(), 'patoloji', 'k5').assignment.dueDate, null);
 });
+
+import { REACTIONS, setReaction, groupReactions } from '../js/rotation.js';
+
+test('emoji tepkileri: tek tepki, tekrar dokununca kalkar, yazı reddedilir', () => {
+  let r = setReaction({}, 'ali', '👍');
+  r = setReaction(r, 'ayse', '👍');
+  r = setReaction(r, 'can', '🔥');
+  assert.deepEqual(groupReactions(r), [{ emoji: '👍', ids: ['ali', 'ayse'] }, { emoji: '🔥', ids: ['can'] }]);
+  r = setReaction(r, 'ali', '🙏'); // değiştir
+  assert.equal(r.ali, '🙏');
+  r = setReaction(r, 'ali', '🙏'); // kaldır
+  assert.equal(r.ali, undefined);
+  assert.throws(() => setReaction(r, 'ali', 'tamam'), /Yalnızca listedeki emojiler/);
+  assert.throws(() => setReaction(r, 'ali', '👍 süper'), /Yalnızca listedeki emojiler/);
+  assert.ok(REACTIONS.length >= 8);
+});

@@ -287,3 +287,46 @@ input[type='date'] { min-height: 40px; }
 .pstat.warn strong { color: var(--warn); }
 .pstat.bad strong { color: var(--bad); }
 .p-sub { font-size: 0.95rem; margin: 4px 0 0; }
+
+/* ---------- Sarı-Lacivert tema ---------- */
+html[data-theme='sl'] {
+  --navy: #0b2357;
+  --navy-2: #163a7e;
+  --yellow: #ffd100;
+  --yellow-2: #f2c200;
+  --brand: var(--navy);
+  --brand-2: var(--navy-2);
+  --bg: #f3f5fa;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme='sl'] { --brand: #081a42; --brand-2: #ffd100; --bg: #0b1428; --surface: #13203d; --soft: #1b2a4d; --line: #26375e; }
+}
+html[data-theme='sl'] .topbar { background: linear-gradient(135deg, #0b2357 0%, #102c6b 100%); border-bottom: 4px solid var(--yellow); }
+html[data-theme='sl'] .conn.live { color: var(--yellow); }
+html[data-theme='sl'] .me { border-color: rgb(255 209 0 / 0.6); }
+html[data-theme='sl'] .tabs button[aria-selected='true'] { color: var(--navy); border-bottom-color: var(--yellow); font-weight: 700; }
+html[data-theme='sl'] .btn.primary { background: var(--yellow); border-color: var(--yellow-2); color: var(--navy); }
+html[data-theme='sl'] .btn.primary:hover { filter: brightness(0.96); }
+html[data-theme='sl'] .type-btn { border-left-color: var(--yellow); }
+html[data-theme='sl'] .type-btn:hover { border-color: var(--yellow-2); }
+html[data-theme='sl'] .sen-btn:not(:disabled):hover { border-color: var(--yellow-2); }
+html[data-theme='sl'] .chip-btn[aria-pressed='true'], html[data-theme='sl'] .day-switch button[aria-selected='true'] { background: var(--navy); border-color: var(--navy); color: var(--yellow); }
+html[data-theme='sl'] .ann-card { border-left-color: var(--yellow); }
+html[data-theme='sl'] .ann-card.unread { border-left-color: var(--bad); }
+html[data-theme='sl'] .next-table thead th { background: var(--navy); color: #fff; }
+html[data-theme='sl'] .result-check { background: var(--yellow); color: var(--navy); }
+html[data-theme='sl'] .react-chip.mine, html[data-theme='sl'] .react-pick.mine { border-color: var(--yellow-2); background: color-mix(in srgb, var(--yellow) 25%, var(--surface)); }
+html[data-theme='sl'] .tab-count { background: var(--yellow); color: var(--navy); }
+html[data-theme='sl'] input:focus-visible, html[data-theme='sl'] select:focus-visible, html[data-theme='sl'] button:focus-visible { outline-color: var(--yellow); }
+html[data-theme='sl'] .install-hint { border-color: var(--yellow-2); }
+html[data-theme='sl'] .badge.s-aktif { background: color-mix(in srgb, var(--navy-2) 14%, transparent); color: var(--navy-2); }
+html[data-theme='sl'] .month-card { border-color: var(--yellow-2); background: linear-gradient(135deg, color-mix(in srgb, var(--yellow) 30%, var(--surface)), var(--surface) 70%); }
+@media (prefers-color-scheme: dark) {
+  html[data-theme='sl'] .tabs button[aria-selected='true'] { color: var(--yellow); }
+  html[data-theme='sl'] .badge.s-aktif { color: var(--yellow); background: rgb(255 209 0 / 0.15); }
+  html[data-theme='sl'] .next-table thead th { background: #081a42; }
+}
+.theme-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.theme-opt { font: inherit; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 2px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; }
+.theme-opt[aria-pressed='true'] { border-color: var(--brand-2); font-weight: 700; }
+.theme-swatch { width: 28px; height: 18px; border-radius: 5px; display: inline-block; }

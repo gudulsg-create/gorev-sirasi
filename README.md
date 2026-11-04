@@ -105,6 +105,10 @@ Ayarlar → **İçe aktar** ile ekip dosyasını (JSON) bir kez yükleyin. Fireb
 2. **Settings → Pages → Deploy from a branch → `main` / `(root)`** seçin.
 3. Uygulama `https://<kullanıcı-adı>.github.io/<depo-adı>/` adresinde açılır. Telefonda tarayıcı menüsünden **Ana ekrana ekle** derseniz uygulama gibi açılır.
 
+## Tema
+
+- Varsayılan tema **sarı-lacivert**; **Ayarlar → Tema** bölümünden klasik maviye geçilebilir. Seçim her cihazda ayrı saklanır, koyu tema telefonun ayarına göre otomatik açılır.
+
 ## Telefona uygulama olarak ekleme
 
 - **iPhone:** Safari'de siteyi aç → **Paylaş (□↑)** → **Ana Ekrana Ekle**.

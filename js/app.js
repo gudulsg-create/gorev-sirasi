@@ -1024,6 +1024,27 @@ function editableList(title, items, { onRename, onDelete, onAdd, addPlaceholder 
   );
 }
 
+// --- Tema ---
+const THEMES = [
+  { id: 'sl', name: 'Sarı-Lacivert', swatch: 'linear-gradient(90deg,#0b2357 50%,#ffd100 50%)', color: '#0b2357' },
+  { id: 'klasik', name: 'Klasik mavi', swatch: 'linear-gradient(90deg,#1f4e79 50%,#2c6aa3 50%)', color: '#1f4e79' },
+];
+function currentTheme() { return document.documentElement.dataset.theme || 'sl'; }
+function setTheme(id) {
+  document.documentElement.dataset.theme = id;
+  try { localStorage.setItem('gorev-sirasi:theme', id); } catch { /* yoksay */ }
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEMES.find((t) => t.id === id)?.color || '#0b2357');
+  render();
+}
+function themeBlock() {
+  return h('div', { class: 'settings-block' },
+    h('h2', {}, '🎨 Tema'),
+    h('div', { class: 'theme-pick' }, THEMES.map((t) => h('button', { class: 'theme-opt', 'aria-pressed': String(currentTheme() === t.id), onclick: () => setTheme(t.id) },
+      h('span', { class: 'theme-swatch', style: `background:${t.swatch}` }), t.name))),
+    h('p', { class: 'muted small', style: 'margin-top:8px' }, 'Seçim yalnızca bu cihazda geçerlidir. Koyu tema telefonun ayarına göre otomatik açılır.'),
+  );
+}
+
 function settingsView() {
   const s = S();
   const connBlock = h('div', { class: 'settings-block' },
@@ -1042,10 +1063,11 @@ function settingsView() {
     ),
   );
   if (!canManage()) {
-    return h('section', {}, accountBlock, h('p', { class: 'muted small' }, 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.'), connBlock);
+    return h('section', {}, accountBlock, themeBlock(), h('p', { class: 'muted small' }, 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.'), connBlock);
   }
   return h('section', {},
     accountBlock,
+    themeBlock(),
     editableList('Görev türleri', s.taskTypes, {
       addPlaceholder: 'ör. Konsültasyon',
       onRename: (t, name) => update((st) => ({ ...st, taskTypes: st.taskTypes.map((x) => (x.id === t.id ? { ...x, name } : x)) }), 'Kaydedildi'),

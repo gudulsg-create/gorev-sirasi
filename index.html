@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="tr" data-theme="sl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#1f4e79" />
+  <meta name="theme-color" content="#0b2357" />
   <title>Görev Sırası</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
@@ -12,6 +12,10 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Görev Sırası" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <script>
+    // Tema seçimini sayfa çizilmeden uygula (yanıp sönmesin).
+    try { document.documentElement.dataset.theme = localStorage.getItem('gorev-sirasi:theme') || 'sl'; } catch (e) {}
+  </script>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>

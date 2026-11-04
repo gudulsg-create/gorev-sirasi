@@ -254,3 +254,36 @@ input[type='date'] { min-height: 40px; }
 .recur-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .recur-list li.alt { border-color: #f0d77a; background: #fff8de; }
 @media (prefers-color-scheme: dark) { .recur-list li.alt { background: color-mix(in srgb, #f2c230 15%, var(--surface)); } }
+
+/* Duyuru panosu */
+.ann-empty { width: 100%; margin-bottom: 12px; }
+.ann-card { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; margin-bottom: 12px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); border-left: 5px solid var(--brand-2); background: var(--surface); box-shadow: var(--shadow); }
+.ann-card.unread { border-left-color: var(--bad); }
+.ann-head { display: flex; align-items: center; gap: 8px; }
+.ann-title { font-weight: 700; }
+.ann-new { font-size: 0.72rem; font-weight: 700; color: #fff; background: var(--bad); border-radius: 999px; padding: 1px 8px; }
+.ann-all { margin-left: auto; }
+.ann-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ann-text.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ann-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ann-item { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: var(--soft); }
+.ann-reads { display: flex; flex-direction: column; gap: 4px; background: var(--surface); border-radius: 8px; padding: 8px 10px; }
+.ann-compose { display: flex; flex-direction: column; gap: 8px; }
+.ann-compose textarea { font: inherit; font-size: 1rem; padding: 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--text); resize: vertical; }
+.ann-compose .btn { align-self: flex-end; }
+
+/* Profil kartı */
+.person-open, .linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.linkish { flex: initial; gap: 8px; }
+.profile { display: flex; flex-direction: column; gap: 12px; }
+.profile-head { display: flex; align-items: center; gap: 14px; }
+.profile-head > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.profile-head h3 { font-size: 1.25rem; margin: 0; }
+.cups { font-size: 0.85rem; font-weight: 600; color: #a57a00; }
+.pstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pstat { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 10px 6px; border-radius: 10px; background: var(--soft); }
+.pstat strong { font-size: 1.3rem; }
+.pstat span { font-size: 0.72rem; color: var(--muted); }
+.pstat.warn strong { color: var(--warn); }
+.pstat.bad strong { color: var(--bad); }
+.p-sub { font-size: 0.95rem; margin: 4px 0 0; }

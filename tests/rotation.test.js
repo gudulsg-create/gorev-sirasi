@@ -283,3 +283,33 @@ test('aynı görev türü ile yalnızca not farklı olabilir', () => {
   assert.deepEqual(occurrenceKind(r, 4), { alt: false, typeId: 'kitap', note: 'İnternet' });
   assert.equal(occurrenceKind({ typeId: 'x' }, 3).alt, false);
 });
+
+import { addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENTS } from '../js/rotation.js';
+
+test('duyuru: ekleme, okundu, tepki, sınırlar', () => {
+  let s = team();
+  s = addAnnouncement(s, { id: 'd1', text: '  Cuma toplantı 13:00  ', by: 'Hüseyin', byId: 'bas', now: 1 });
+  assert.equal(s.announcements[0].text, 'Cuma toplantı 13:00');
+  assert.equal(unreadCount(s, 'bas'), 0); // yazan okumuş sayılır
+  assert.equal(unreadCount(s, 'ali'), 1);
+  const r = markAnnouncementsRead(s, 'ali', 5);
+  assert.equal(unreadCount(r, 'ali'), 0);
+  assert.equal(markAnnouncementsRead(r, 'ali', 6), null); // tekrar yazma yok
+  s = reactAnnouncement(r, 'd1', 'ali', '👍');
+  assert.equal(s.announcements[0].reactions.ali, '👍');
+  assert.throws(() => reactAnnouncement(s, 'd1', 'ali', 'tamam'), /Yalnızca listedeki/);
+  assert.throws(() => addAnnouncement(s, { id: 'x', text: '   ', by: 'H', byId: 'bas' }), /boş olamaz/);
+  assert.throws(() => addAnnouncement(s, { id: 'x', text: 'a'.repeat(501), by: 'H', byId: 'bas' }), /en fazla/);
+  for (let i = 0; i < 25; i++) s = addAnnouncement(s, { id: 'n' + i, text: 'd' + i, by: 'H', byId: 'bas' });
+  assert.equal(s.announcements.length, MAX_ANNOUNCEMENTS);
+  assert.equal(s.announcements[0].id, 'n24');
+  assert.equal(removeAnnouncement(s, 'n24').announcements[0].id, 'n23');
+});
+
+test('profil: kupalar', () => {
+  let s = team();
+  s = { ...s, stats: { '2026-09': { ali: 5, can: 2 }, '2026-10': { can: 4, ali: 4 }, '2026-11': { ayse: 3 } } };
+  assert.deepEqual(trophies(s, 'ali'), ['2026-10', '2026-09']);
+  assert.deepEqual(trophies(s, 'can'), ['2026-10']);
+  assert.deepEqual(trophies(s, 'deniz'), []);
+});

@@ -305,3 +305,43 @@ export function runRecurring(state, recurringId, { id, now = Date.now(), today =
   const recurring = out.state.recurring.map((x) => (x.id === r.id ? { ...x, nextDate: next, lastRun: today, seq } : x));
   return { state: { ...out.state, recurring }, assignment: { ...out.assignment, recurringId: r.id, recurringSeq: seq } };
 }
+
+// ---------- Duyuru panosu ----------
+export const MAX_ANNOUNCEMENTS = 20;
+export const MAX_ANNOUNCEMENT_LEN = 500;
+
+/** Yeni duyuru ekler (en yeni başta); en fazla MAX_ANNOUNCEMENTS tutulur. */
+export function addAnnouncement(state, { id, text, by, byId, now = Date.now() }) {
+  const t = String(text || '').trim();
+  if (!t) throw new Error('Duyuru boş olamaz.');
+  if (t.length > MAX_ANNOUNCEMENT_LEN) throw new Error(`Duyuru en fazla ${MAX_ANNOUNCEMENT_LEN} karakter olabilir.`);
+  const a = { id, text: t, by, byId, createdAt: now, readBy: { [byId]: now }, reactions: {} };
+  return { ...state, announcements: [a, ...(state.announcements || [])].slice(0, MAX_ANNOUNCEMENTS) };
+}
+
+export function removeAnnouncement(state, id) {
+  return { ...state, announcements: (state.announcements || []).filter((a) => a.id !== id) };
+}
+
+/** Okunmamış duyuruları okundu işaretler. Değişiklik yoksa null döner (gereksiz yazma olmasın). */
+export function markAnnouncementsRead(state, personId, now = Date.now()) {
+  let changed = false;
+  const announcements = (state.announcements || []).map((a) => {
+    if (a.readBy?.[personId]) return a;
+    changed = true;
+    return { ...a, readBy: { ...(a.readBy || {}), [personId]: now } };
+  });
+  return changed ? { ...state, announcements } : null;
+}
+
+export function reactAnnouncement(state, id, personId, emoji) {
+  return { ...state, announcements: (state.announcements || []).map((a) => (a.id === id ? { ...a, reactions: setReaction(a.reactions, personId, emoji) } : a)) };
+}
+
+export const unreadCount = (state, personId) => (state.announcements || []).filter((a) => !a.readBy?.[personId]).length;
+
+// ---------- Profil ----------
+/** Kişinin ayın elemanı olduğu aylar (en yeni başta). */
+export function trophies(state, personId) {
+  return Object.keys(state.stats || {}).filter((m) => winners(state, m).some((w) => w.personId === personId)).sort().reverse();
+}

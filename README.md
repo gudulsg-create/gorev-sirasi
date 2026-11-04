@@ -32,6 +32,18 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 - **Dönüşümlü görev:** "Her N. seferde farklı görev" seçeneğiyle örneğin her ay *internetten uzatma*, her 3. ay *kütüphanede yüz yüze uzatma* verilir. Yüz yüze için ayrı görev türü seçilirse onun sırası da ayrı döner; kütüphaneye gitme işi ekipte adil dağılır.
 - Görev ver sayfasında **Yaklaşan otomatik görevler** listesi, bir sonraki görevin ne olduğunu ve kime gideceğini gösterir.
 
+## Duyuru panosu
+
+- Görev ver sayfasının üstündeki **📢 Duyuru** kartından açılır. Giriş yapmış **herkes** duyuru yazabilir (en fazla 500 karakter, son 20 duyuru tutulur).
+- Duyurulara yorum yazılmaz; yalnızca emojiyle tepki verilir.
+- Okunmamış duyuru kartta **Yeni** etiketiyle görünür; pano açılınca okundu sayılır. **👁 9/13** düğmesi kimin okuduğunu ve kimin henüz okumadığını gösterir.
+- Herkes kendi duyurusunu silebilir; başasistan tüm duyuruları silebilir.
+
+## Kişisel profil kartı
+
+- Ekip listesinde, Geçmiş'te veya ayın elemanı sıralamasında bir kişinin adına/fotoğrafına dokununca açılır.
+- Bu ay aldığı ve tamamladığı görevler, tamamlama oranı, açık ve geciken görevleri, bu ay verdiği görevler, ayın elemanı kupaları, izin durumu ve son görevleri görünür.
+
 ## Emoji tepkileri
 
 - Her görevin altındaki **☺︎+** ile 👍 🙏 ✅ 💪 👏 🔥 ❤️ 😂 😅 🤔 tepkilerinden biri verilir. Yazı girilemez; yalnızca bu listeden seçilir.

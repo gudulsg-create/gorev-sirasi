@@ -1,6 +1,6 @@
 import { firebaseConfig, teamId } from './firebase-config.js';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -248,6 +248,7 @@ function giveView() {
   const recent = data.assignments.filter((a) => a.status !== 'iptal').slice(0, 5);
   return h('section', {},
     installHint(),
+    announcementCard(),
     monthCard(),
     h('p', { class: 'lead' }, 'Vermek istediğin görevi seç:'),
     h('div', { class: 'type-grid' },
@@ -342,7 +343,7 @@ function openLeaderboard(month) {
     const topCount = r[0]?.count;
     list.replaceChildren(...(r.length ? r.map((x, i) => {
       const p = personById(x.personId);
-      return h('li', { class: x.count === topCount ? 'top' : '' },
+      return h('li', { class: x.count === topCount ? 'top' : '', onclick: () => p && openProfile(p.id), style: p ? 'cursor:pointer' : '' },
         h('span', { class: 'rank' }, x.count === topCount ? '🏆' : String(i + 1)),
         avatar(p || { id: x.personId, name: '?' }, 36),
         h('span', { class: 'leader-name' }, p?.name ?? 'Eski ekip üyesi', p ? h('small', { class: 'muted' }, senName(p.seniorityId)) : null),
@@ -631,6 +632,166 @@ async function toggleDone(a) {
   if (r) toast(r.done ? 'Tamamlandı olarak işaretlendi' : 'Yeniden açıldı');
 }
 
+// --- Duyuru panosu ---
+let annOpen = false;
+let annNamesFor = null; // okuyan listesi açık duyuru
+function announcementCard() {
+  const s = S();
+  const me = mePerson();
+  const list = s.announcements || [];
+  if (!list.length) {
+    return me ? h('button', { class: 'btn ann-empty', onclick: openAnnouncements }, '📢 Duyuru yayınla') : null;
+  }
+  const a = list[0];
+  const unread = unreadCount(s, me?.id);
+  return h('button', { class: `ann-card ${unread ? 'unread' : ''}`, onclick: openAnnouncements },
+    h('div', { class: 'ann-head' },
+      h('span', { class: 'ann-title' }, '📢 Duyuru'),
+      unread ? h('span', { class: 'ann-new' }, unread === 1 ? 'Yeni' : `${unread} yeni`) : null,
+      h('span', { class: 'muted small ann-all' }, list.length > 1 ? `Tümü (${list.length}) ›` : 'Aç ›'),
+    ),
+    h('p', { class: 'ann-text clamp' }, a.text),
+    h('span', { class: 'muted small' }, `${a.by} · ${fmtDate(a.createdAt)}`),
+  );
+}
+
+function openAnnouncements() {
+  annOpen = true;
+  annNamesFor = null;
+  renderAnnouncements();
+  const me = mePerson();
+  if (me && unreadCount(S(), me.id)) {
+    run((st) => {
+      const next = markAnnouncementsRead(st, me.id);
+      return next ? { state: next } : {};
+    });
+  }
+  dlg.addEventListener('close', () => { annOpen = false; }, { once: true });
+}
+
+function renderAnnouncements() {
+  const s = S();
+  const me = mePerson();
+  const prevText = dlgForm.querySelector('textarea[name=ann]')?.value || '';
+  const total = s.people.length;
+  const nameOf = (id) => personById(id)?.name ?? 'Eski ekip üyesi';
+  const items = (s.announcements || []).map((a) => {
+    const readIds = Object.keys(a.readBy || {}).filter((id) => personById(id));
+    const showNames = annNamesFor === a.id;
+    const unreadPeople = s.people.filter((p) => !a.readBy?.[p.id]);
+    return h('li', { class: 'ann-item' },
+      h('p', { class: 'ann-text' }, a.text),
+      h('span', { class: 'muted small' }, `${a.by} · ${fmtDate(a.createdAt)}`),
+      h('div', { class: 'react-bar' },
+        groupReactions(a.reactions).map((g) => h('button', { type: 'button', class: `react-chip ${me && g.ids.includes(me.id) ? 'mine' : ''}`, onclick: () => reactAnn(a, g.emoji) },
+          h('span', { class: 'react-emoji' }, g.emoji), h('span', { class: 'react-avs' }, g.ids.slice(0, 3).map((id) => avatar(id, 16))), g.ids.length > 3 ? h('span', { class: 'react-n' }, `+${g.ids.length - 3}`) : null)),
+        h('button', { type: 'button', class: 'react-add', 'aria-label': 'Emoji ile tepki ver', onclick: (e) => { const pk = e.currentTarget.closest('.ann-item').querySelector('.react-picker'); pk.hidden = !pk.hidden; } }, '☺︎+'),
+        h('button', { type: 'button', class: 'react-add', onclick: () => { annNamesFor = showNames ? null : a.id; renderAnnouncements(); } }, `👁 ${readIds.length}/${total}`),
+      ),
+      h('div', { class: 'react-picker', hidden: true }, REACTIONS.map((e) => h('button', { type: 'button', class: `react-pick ${me && a.reactions?.[me.id] === e ? 'mine' : ''}`, onclick: () => reactAnn(a, e) }, e))),
+      showNames ? h('div', { class: 'ann-reads small' },
+        h('div', {}, h('strong', {}, 'Okudu: '), readIds.map(nameOf).join(', ') || '—'),
+        h('div', { class: 'muted' }, h('strong', {}, 'Henüz okumadı: '), unreadPeople.map((p) => p.name).join(', ') || '—'),
+      ) : null,
+      isAdmin() || (me && a.byId === me.id) ? h('button', { type: 'button', class: 'btn small danger-ghost', style: 'align-self:flex-start', onclick: async () => {
+        dlg.close();
+        if (!(await askConfirm('Bu duyuru silinsin mi?', 'Sil'))) return;
+        const r = await run((st) => {
+          const cur = (st.announcements || []).find((x) => x.id === a.id);
+          const meNow = mePerson();
+          if (cur && !(isAdmin() || cur.byId === meNow?.id)) throw new Error('Yalnızca kendi duyurunu silebilirsin.');
+          return { state: removeAnnouncement(st, a.id) };
+        });
+        if (r) toast('Duyuru silindi');
+      } }, 'Sil') : null,
+    );
+  });
+  const composer = me ? h('div', { class: 'ann-compose' },
+    h('textarea', { name: 'ann', rows: '3', maxlength: String(MAX_ANNOUNCEMENT_LEN), placeholder: 'Ekibe duyuru yaz… (hasta bilgisi yazmayın)' }),
+    h('button', { type: 'button', class: 'btn primary', onclick: postAnnouncement }, 'Yayınla'),
+  ) : null;
+  openDialog('📢 Duyurular', h('div', { class: 'form-grid' },
+    composer,
+    items.length ? h('ul', { class: 'ann-list' }, items) : h('p', { class: 'muted' }, 'Henüz duyuru yok.'),
+    h('small', { class: 'muted' }, 'Herkes duyuru yazabilir; duyurulara yalnızca emojiyle tepki verilir. Kendi duyurunu silebilirsin, başasistan tüm duyuruları silebilir.'),
+  ), { cancelText: 'Kapat' });
+  const ta = dlgForm.querySelector('textarea[name=ann]');
+  if (ta && prevText) ta.value = prevText;
+}
+
+async function postAnnouncement() {
+  const me = mePerson();
+  const ta = dlgForm.querySelector('textarea[name=ann]');
+  const text = ta?.value.trim();
+  if (!text) return toast('Duyuru boş olamaz.');
+  if (!me) return openLogin();
+  const r = await run((st) => ({ state: addAnnouncement(st, { id: uid(), text, by: me.name, byId: me.id }) }));
+  if (!r) return;
+  // Gönderim sırasında ekran yenilenmiş olabilir; güncel kutuyu temizle.
+  const fresh = dlgForm.querySelector('textarea[name=ann]');
+  if (fresh) fresh.value = '';
+  toast('Duyuru yayınlandı');
+  renderAnnouncements();
+}
+
+async function reactAnn(a, emoji) {
+  const me = mePerson();
+  if (!me) return;
+  await run((st) => ({ state: reactAnnouncement(st, a.id, me.id, emoji) }));
+  if (annOpen && dlg.open) renderAnnouncements();
+}
+
+// --- Kişisel profil kartı ---
+function openProfile(personId) {
+  const s = S();
+  const p = personById(personId);
+  if (!p) return;
+  const month = monthKey(Date.now());
+  const mine = data.assignments.filter((a) => a.personId === p.id && a.status !== 'iptal');
+  const thisMonth = mine.filter((a) => monthKey(a.createdAt) === month);
+  const doneMonth = (s.stats?.[month] || {})[p.id] || 0;
+  const done = mine.filter((a) => a.status === 'tamamlandı').length;
+  const open = mine.filter((a) => a.status === 'aktif');
+  const late = open.filter((a) => a.dueDate && a.dueDate < dayKey()).length;
+  const given = data.assignments.filter((a) => a.byId === p.id && a.status !== 'iptal' && monthKey(a.createdAt) === month).length;
+  const cups = trophies(s, p.id);
+  const rate = mine.length ? Math.round((done / mine.length) * 100) : null;
+  const now = leaveOn(p);
+  const nextLeave = cleanLeaves(p.leaves || []).find((l) => l.from > dayKey());
+  const stat = (v, l, cls = '') => h('div', { class: `pstat ${cls}` }, h('strong', {}, String(v)), h('span', {}, l));
+  const body = h('div', { class: 'profile' },
+    h('div', { class: 'profile-head' },
+      avatar(p, 96),
+      h('div', {},
+        h('h3', {}, p.name),
+        h('span', { class: 'muted' }, senName(p.seniorityId)),
+        cups.length ? h('span', { class: 'cups', title: cups.map(monthLabel).join(', ') }, '🏆'.repeat(Math.min(cups.length, 5)), ` ${cups.length} kez ayın elemanı`) : null,
+        now ? h('span', { class: 'leave-tag' }, `🌴 İzinde · ${fmtDay(now.to)}'e kadar`)
+          : p.active === false ? h('span', { class: 'leave-tag' }, '🌴 İzinli')
+          : nextLeave ? h('span', { class: 'muted small' }, `🌴 Planlı izin: ${fmtDay(nextLeave.from)} – ${fmtDay(nextLeave.to)}`) : null,
+      ),
+    ),
+    h('div', { class: 'pstats' },
+      stat(thisMonth.length, 'bu ay aldığı'),
+      stat(doneMonth, 'bu ay tamamladığı'),
+      stat(rate === null ? '—' : `%${rate}`, 'tamamlama oranı'),
+      stat(open.length, 'açık görev', open.length ? 'warn' : ''),
+      stat(late, 'geciken', late ? 'bad' : ''),
+      stat(given, 'bu ay verdiği'),
+    ),
+    cups.length ? h('p', { class: 'muted small' }, `🏆 ${cups.map(monthLabel).join(', ')}`) : null,
+    mine.length ? h('h3', { class: 'p-sub' }, 'Son görevleri') : null,
+    mine.length ? h('ul', { class: 'asg-list' }, mine.slice(0, 5).map((a) => assignmentItem(a, { compact: true }))) : h('p', { class: 'muted' }, 'Henüz görevi yok.'),
+  );
+  openDialog(null, body, {
+    cancelText: 'Kapat',
+    extra: [
+      isAdmin() && h('button', { type: 'button', class: 'btn', onclick: () => editPerson(p) }, 'Düzenle'),
+      mePerson()?.id === p.id && h('button', { type: 'button', class: 'btn', onclick: openAccount }, 'Hesabım'),
+    ].filter(Boolean),
+  });
+}
+
 // --- Emoji tepkileri ---
 let reactOpenFor = null; // tepki seçicisi açık olan görev
 async function react(a, emoji) {
@@ -670,7 +831,7 @@ function assignmentItem(a, { compact = false } = {}) {
   const late = a.status === 'aktif' && a.dueDate && a.dueDate < dayKey();
   return h('li', { class: `asg ${a.status === 'iptal' ? 'cancelled' : ''} ${late ? 'late' : ''}` },
     h('div', { class: 'asg-main' },
-      h('div', { class: 'asg-title' }, h('span', { class: 'asg-who' }, avatar(a.personId, 28), h('strong', {}, a.personName)), h('span', { class: `badge s-${a.status}` }, status)),
+      h('div', { class: 'asg-title' }, h('button', { class: 'asg-who linkish', onclick: () => openProfile(a.personId), 'aria-label': `${a.personName} profili` }, avatar(a.personId, 28), h('strong', {}, a.personName)), h('span', { class: `badge s-${a.status}` }, status)),
       h('span', {}, `${a.typeName} · ${a.seniorityName}`),
       h('span', { class: 'muted small' }, `${fmtDate(a.createdAt)}${a.by ? ' · veren: ' + a.by : ''}`),
       a.skipped?.length ? h('span', { class: 'muted small' }, `↪ ${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
@@ -773,10 +934,10 @@ function personRow(p, i, n, manage) {
     })(),
     h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
   );
-  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, avatar(p, 36), main);
+  const who = h('button', { class: 'person-open', 'aria-label': `${p.name} profili`, onclick: () => openProfile(p.id) }, avatar(p, 36), main);
+  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, who);
   return h('li', { class: `person ${p.active === false ? 'away' : ''}` },
-    avatar(p, 36),
-    main,
+    who,
     h('button', { class: `pin-btn ${p.pinHash ? 'has' : ''}`, title: p.pinHash ? 'PIN var · yenisini ata' : 'PIN yok · ata', onclick: () => setPinFor(p) }, p.pinHash ? '🔑' : '🔑?'),
     h('label', { class: 'switch', title: 'İzinli / müsait değil' },
       h('input', { type: 'checkbox', checked: p.active === false, onchange: (e) => {
@@ -1051,7 +1212,7 @@ function openAccount() {
     pinInput('new2', 'Yeni PIN (tekrar)'),
   );
   openDialog('Hesabım', body, {
-    extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap')],
+    extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'), h('button', { type: 'button', class: 'btn', onclick: () => openProfile(mp.id) }, 'Profilim')],
     submitText: 'PIN\'i değiştir',
     onSubmit: async (fd) => {
       const me = mePerson();
@@ -1135,6 +1296,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
       return;
     }
     render();
+    if (annOpen && dlg.open) renderAnnouncements();
     checkRecurring();
   });
 })();

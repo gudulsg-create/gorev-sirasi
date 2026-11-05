@@ -124,7 +124,7 @@ Cloudflare Workers'ın ücretsiz planı bu kullanım için fazlasıyla yeterlidi
 
 ## Tema
 
-- Varsayılan tema **sarı-lacivert**; **Ayarlar → Tema** bölümünden klasik maviye geçilebilir. Seçim her cihazda ayrı saklanır, koyu tema telefonun ayarına göre otomatik açılır.
+- Varsayılan tema **sarı-lacivert**; **Ayarlar → Tema** bölümünden **kırmızı-beyaz** veya **klasik mavi** seçilebilir. Seçim her cihazda ayrı saklanır, koyu tema telefonun ayarına göre otomatik açılır.
 
 ## Telefona uygulama olarak ekleme
 

@@ -334,3 +334,39 @@ html[data-theme='sl'] .month-card { border-color: var(--yellow-2); background: l
 /* Bildirim kutusu */
 .notif-box { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--soft); margin: 6px 0; }
 .notif-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+
+/* ---------- Kırmızı-Beyaz tema ---------- */
+html[data-theme='kb'] {
+  --red: #c8102e;
+  --red-2: #a00d25;
+  --brand: var(--red);
+  --brand-2: var(--red);
+  --bg: #f7f4f4;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme='kb'] { --brand: #8a0b20; --brand-2: #ff4d63; --bg: #161012; --surface: #221a1c; --soft: #2d2326; --line: #3d3033; }
+}
+html[data-theme='kb'] .topbar { background: linear-gradient(135deg, #d4142f 0%, #a00d25 100%); border-bottom: 4px solid #ffffff; box-shadow: 0 2px 0 var(--red-2); }
+html[data-theme='kb'] .conn.live { color: #ffffff; }
+html[data-theme='kb'] .me { background: rgb(255 255 255 / 0.18); border-color: rgb(255 255 255 / 0.6); }
+html[data-theme='kb'] .tabs button[aria-selected='true'] { color: var(--red); border-bottom-color: var(--red); font-weight: 700; }
+html[data-theme='kb'] .btn.primary { background: var(--red); border-color: var(--red-2); color: #fff; }
+html[data-theme='kb'] .type-btn { border-left-color: var(--red); }
+html[data-theme='kb'] .type-btn:hover, html[data-theme='kb'] .sen-btn:not(:disabled):hover { border-color: var(--red); }
+html[data-theme='kb'] .chip-btn[aria-pressed='true'], html[data-theme='kb'] .day-switch button[aria-selected='true'] { background: var(--red); border-color: var(--red); color: #fff; }
+html[data-theme='kb'] .ann-card { border-left-color: var(--red); }
+html[data-theme='kb'] .next-table thead th { background: var(--red); color: #fff; }
+html[data-theme='kb'] .result-check { background: var(--red); color: #fff; }
+html[data-theme='kb'] .react-chip.mine, html[data-theme='kb'] .react-pick.mine { border-color: var(--red); background: color-mix(in srgb, var(--red) 12%, var(--surface)); }
+html[data-theme='kb'] .tab-count { background: var(--red); color: #fff; box-shadow: 0 0 0 2px var(--surface); }
+html[data-theme='kb'] input:focus-visible, html[data-theme='kb'] select:focus-visible, html[data-theme='kb'] button:focus-visible { outline-color: #ff8a99; }
+html[data-theme='kb'] .badge.s-aktif { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+html[data-theme='kb'] .theme-opt[aria-pressed='true'] { border-color: var(--red); }
+html[data-theme='kb'] .install-hint { border-color: color-mix(in srgb, var(--red) 40%, var(--line)); }
+@media (prefers-color-scheme: dark) {
+  html[data-theme='kb'] .topbar { background: linear-gradient(135deg, #a00d25 0%, #6e0817 100%); border-bottom-color: #f2f2f2; }
+  html[data-theme='kb'] .tabs button[aria-selected='true'] { color: #ff4d63; border-bottom-color: #ff4d63; }
+  html[data-theme='kb'] .badge.s-aktif { color: #ff6b7e; background: rgb(255 77 99 / 0.15); }
+  html[data-theme='kb'] .next-table thead th { background: #8a0b20; }
+}
+.theme-swatch { border: 1px solid var(--line); }

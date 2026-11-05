@@ -1,7 +1,7 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2026.11.05-3';
+export const APP_VERSION = '2026.11.05-4';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
@@ -1165,9 +1165,11 @@ function editableList(title, items, { onRename, onDelete, onAdd, addPlaceholder 
 // --- Tema ---
 const THEMES = [
   { id: 'sl', name: 'Sarı-Lacivert', swatch: 'linear-gradient(90deg,#0b2357 50%,#ffd100 50%)', color: '#0b2357' },
+  { id: 'kb', name: 'Kırmızı-Beyaz', swatch: 'linear-gradient(90deg,#c8102e 50%,#ffffff 50%)', color: '#c8102e' },
   { id: 'klasik', name: 'Klasik mavi', swatch: 'linear-gradient(90deg,#1f4e79 50%,#2c6aa3 50%)', color: '#1f4e79' },
 ];
 function currentTheme() { return document.documentElement.dataset.theme || 'sl'; }
+document.querySelector('meta[name=theme-color]')?.setAttribute('content', { kb: '#c8102e', klasik: '#1f4e79' }[document.documentElement.dataset.theme] || '#0b2357');
 function setTheme(id) {
   document.documentElement.dataset.theme = id;
   try { localStorage.setItem('gorev-sirasi:theme', id); } catch { /* yoksay */ }

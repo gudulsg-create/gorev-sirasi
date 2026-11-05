@@ -313,3 +313,27 @@ test('profil: kupalar', () => {
   assert.deepEqual(trophies(s, 'can'), ['2026-10']);
   assert.deepEqual(trophies(s, 'deniz'), []);
 });
+
+import { skipWeekend } from '../js/rotation.js';
+
+test('günlük tekrar: her gün sıradakine, hafta sonu atlanabilir', () => {
+  // 2026-11-06 Cuma, 07 Cmt, 08 Paz, 09 Pzt
+  assert.equal(skipWeekend('2026-11-07'), '2026-11-09');
+  assert.equal(skipWeekend('2026-11-06'), '2026-11-06');
+  let s = { ...team(), recurring: [{ id: 'r1', typeId: 'patoloji', seniorityId: 'k5', every: 1, unit: 'day', nextDate: '2026-11-05', leadDays: 0, skipWeekends: true }] };
+  const got = [];
+  let today = '2026-11-05';
+  for (let i = 0; i < 4; i++) {
+    const r = runRecurring(s, 'r1', { id: 'a' + i, today, now: new Date(today + 'T09:00').getTime() });
+    s = r.state;
+    got.push(`${today}|${r.assignment.personName}`);
+    today = s.recurring[0].nextDate;
+  }
+  assert.deepEqual(got, ['2026-11-05|Ali', '2026-11-06|Ayşe', '2026-11-09|Can', '2026-11-10|Ali']);
+  // hafta sonu dahil
+  let s2 = { ...team(), recurring: [{ id: 'r1', typeId: 'patoloji', seniorityId: 'k5', every: 1, unit: 'day', nextDate: '2026-11-06', leadDays: 0 }] };
+  s2 = runRecurring(s2, 'r1', { id: 'b', today: '2026-11-06', now: new Date('2026-11-06T09:00').getTime() }).state;
+  assert.equal(s2.recurring[0].nextDate, '2026-11-07');
+  // aynı gün ikinci kez verilmez
+  assert.equal(runRecurring(s2, 'r1', { today: '2026-11-06' }), null);
+});

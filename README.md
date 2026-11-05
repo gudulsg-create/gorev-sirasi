@@ -27,7 +27,7 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 
 ## Tekrarlayan görevler
 
-- Başasistan **Ayarlar → Tekrarlayan görevler** bölümünden tanımlar: görev, kıdem, sıklık (ayda/haftada bir), sıradaki tarih (son gün) ve kaç gün önce verileceği.
+- Başasistan **Ayarlar → Tekrarlayan görevler** bölümünden tanımlar: görev, kıdem, sıklık (her gün / N günde, haftada veya ayda bir; isteğe bağlı *hafta sonları verme*), sıradaki tarih (son gün) ve kaç gün önce verileceği.
 - Zamanı gelince görev o kıdemde sırası gelen kişiye **kendiliğinden** verilir (veren: 🔁 Otomatik), son gün olarak tekrar tarihi yazılır ve sonraki tarih ileri alınır. Ekipten giriş yapmış herhangi birinin uygulamayı açması yeterlidir; aynı tekrar için ikinci görev oluşmaz.
 - **Dönüşümlü görev:** "Her N. seferde farklı görev" seçeneğiyle örneğin her ay *internetten uzatma*, her 3. ay *kütüphanede yüz yüze uzatma* verilir. Yüz yüze için ayrı görev türü seçilirse onun sırası da ayrı döner; kütüphaneye gitme işi ekipte adil dağılır.
 - Görev ver sayfasında **Yaklaşan otomatik görevler** listesi, bir sonraki görevin ne olduğunu ve kime gideceğini gösterir.

@@ -360,7 +360,8 @@ function openLeaderboard(month) {
 }
 
 // --- Tekrarlayan görevler ---
-const recurLabel = (r) => `${r.every} ${r.unit === 'week' ? 'haftada' : 'ayda'} bir` + (r.altEvery > 1 ? ` · her ${r.altEvery}. seferde: ${typeName(r.altTypeId || r.typeId)}${r.altNote ? ' (' + r.altNote + ')' : ''}` : '');
+const freqLabel = (r) => (r.unit === 'day' ? (r.every === 1 ? 'her gün' : `${r.every} günde bir`) : `${r.every} ${r.unit === 'week' ? 'haftada' : 'ayda'} bir`) + (r.skipWeekends ? ' (hafta sonu hariç)' : '');
+const recurLabel = (r) => freqLabel(r) + (r.altEvery > 1 ? ` · her ${r.altEvery}. seferde: ${typeName(r.altTypeId || r.typeId)}${r.altNote ? ' (' + r.altNote + ')' : ''}` : '');
 function upcomingRecurring() {
   const s = S();
   const list = (s.recurring || []).filter((r) => r.active !== false).sort((a, b) => a.nextDate.localeCompare(b.nextDate));
@@ -451,10 +452,14 @@ function editRecurring(r) {
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Ne sıklıkla'),
       h('div', { class: 'row' },
         h('input', { name: 'every', type: 'number', min: '1', max: '24', required: true, value: String(r.every), style: 'width:80px' }),
-        h('select', { name: 'unit' }, h('option', { value: 'month', selected: r.unit !== 'week' }, 'ayda bir'), h('option', { value: 'week', selected: r.unit === 'week' }, 'haftada bir')),
-      )),
+        h('select', { name: 'unit', onchange: (e) => { const lead = dlgForm.querySelector('input[name=leadDays]'); if (e.target.value === 'day' && lead && Number(lead.value) > 0) lead.value = '0'; } },
+          h('option', { value: 'day', selected: r.unit === 'day' }, 'günde bir'),
+          h('option', { value: 'week', selected: r.unit === 'week' }, 'haftada bir'),
+          h('option', { value: 'month', selected: !r.unit || r.unit === 'month' }, 'ayda bir')),
+      ),
+      h('label', { class: 'lock', style: 'margin-top:6px' }, h('input', { type: 'checkbox', name: 'skipWeekends', checked: !!r.skipWeekends }), 'Hafta sonları verme (cumartesi/pazar atlanır)')),
     field('Sıradaki tarih (son gün)', h('input', { name: 'nextDate', type: 'date', required: true, value: r.nextDate }), 'Örn. kütüphaneye gidilmesi gereken gün.'),
-    field('Kaç gün önce verilsin', h('input', { name: 'leadDays', type: 'number', min: '0', max: '60', required: true, value: String(r.leadDays) })),
+    field('Kaç gün önce verilsin', h('input', { name: 'leadDays', type: 'number', min: '0', max: '60', required: true, value: String(r.leadDays) }), 'Günlük görevlerde 0 (o gün verilir) önerilir.'),
     field('Not (isteğe bağlı)', h('input', { name: 'note', maxlength: '80', value: r.note || '', placeholder: 'ör. İnternetten uzatma' })),
     altBox(r),
     !isNew ? h('label', { class: 'lock' }, h('input', { type: 'checkbox', name: 'active', checked: r.active !== false }), 'Etkin') : null,
@@ -476,7 +481,8 @@ function editRecurring(r) {
         typeId: fd.get('typeId'),
         seniorityId: fd.get('seniorityId'),
         every: Math.max(1, Math.min(24, Number(fd.get('every')) || 1)),
-        unit: fd.get('unit') === 'week' ? 'week' : 'month',
+        unit: ['day', 'week'].includes(fd.get('unit')) ? fd.get('unit') : 'month',
+        skipWeekends: fd.get('skipWeekends') === 'on',
         nextDate: fd.get('nextDate'),
         leadDays: Math.max(0, Math.min(60, Number(fd.get('leadDays')) || 0)),
         note: (fd.get('note') || '').trim(),

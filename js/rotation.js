@@ -261,9 +261,24 @@ export function addDaysTo(day, n) {
   const [y, m, d] = day.split('-').map(Number);
   return dayKey(new Date(y, m - 1, d + n).getTime());
 }
-/** Bir sonraki tekrar tarihi. */
+const isWeekend = (day) => {
+  const [y, m, d] = day.split('-').map(Number);
+  const wd = new Date(y, m - 1, d).getDay();
+  return wd === 0 || wd === 6;
+};
+/** Hafta sonu atlanacaksa bir sonraki iş gününe kaydırır. */
+export function skipWeekend(day) {
+  let d = day;
+  while (isWeekend(d)) d = addDaysTo(d, 1);
+  return d;
+}
+/** Bir sonraki tekrar tarihi (gün / hafta / ay). */
 export function nextOccurrence(r, day = r.nextDate) {
-  return r.unit === 'week' ? addDaysTo(day, 7 * r.every) : addMonths(day, r.every);
+  let next;
+  if (r.unit === 'day') next = addDaysTo(day, r.every);
+  else if (r.unit === 'week') next = addDaysTo(day, 7 * r.every);
+  else next = addMonths(day, r.every);
+  return r.skipWeekends ? skipWeekend(next) : next;
 }
 /** Görevin verileceği gün = tarih − kaç gün önce. */
 export const issueDay = (r) => addDaysTo(r.nextDate, -(r.leadDays || 0));

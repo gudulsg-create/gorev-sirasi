@@ -1,10 +1,10 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2026.11.05-2';
+export const APP_VERSION = '2026.11.05-3';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
-import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
+import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
@@ -382,7 +382,7 @@ function upcomingRecurring() {
         h('div', { class: 'recur-main' },
           h('strong', {}, `${kind.alt ? '🏛 ' : ''}${typeName(kind.typeId)} · ${senName(r.seniorityId)}`),
           kind.note ? h('span', { class: 'small' }, kind.note) : null,
-          h('span', { class: 'muted small' }, `${fmtDay(issueDay(r))} günü verilecek · son gün ${fmtDay(r.nextDate)} · ${recurLabel(r)}`),
+          h('span', { class: 'muted small' }, `${fmtDay(r.skipWeekends ? skipWeekend(issueDay(r)) : issueDay(r))} günü verilecek · son gün ${fmtDay(r.nextDate)} · ${recurLabel(r)}`),
         ),
         n ? h('span', { class: 'cell-who small' }, avatar(n, 22), n.name.split(' ')[0]) : h('span', { class: 'muted small' }, 'Müsait yok'),
       );
@@ -453,7 +453,7 @@ function editRecurring(r) {
   const kitap = s.taskTypes.find((t) => /kitap/i.test(t.name) && !/yüz/i.test(t.name));
   const yuzyuze = s.taskTypes.find((t) => /yüz yüze/i.test(t.name));
   r = r ?? { typeId: kitap?.id ?? s.taskTypes[0]?.id, seniorityId: s.seniorities[s.seniorities.length - 1]?.id, every: 1, unit: 'month', nextDate: '', leadDays: 3, note: 'İnternetten uzatma', active: true,
-    altEvery: 3, altTypeId: yuzyuze?.id || '', altNote: 'Yüz yüze: kütüphaneye gidilecek' };
+    altEvery: 3, altTypeId: yuzyuze?.id || '', altNote: 'Yüz yüze: kütüphaneye gidilecek', skipWeekends: true };
   const sel = (name, items, val) => h('select', { name }, items.map((x) => h('option', { value: x.id, selected: x.id === val }, x.name)));
   const field = (label, el, help) => h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), el, help ? h('small', { class: 'muted' }, help) : null);
   const body = h('div', { class: 'form-grid' },
@@ -493,7 +493,7 @@ function editRecurring(r) {
         every: Math.max(1, Math.min(24, Number(fd.get('every')) || 1)),
         unit: ['day', 'week'].includes(fd.get('unit')) ? fd.get('unit') : 'month',
         skipWeekends: fd.get('skipWeekends') === 'on',
-        nextDate: fd.get('nextDate'),
+        nextDate: fd.get('skipWeekends') === 'on' ? skipWeekend(fd.get('nextDate')) : fd.get('nextDate'),
         leadDays: Math.max(0, Math.min(60, Number(fd.get('leadDays')) || 0)),
         note: (fd.get('note') || '').trim(),
         active: isNew ? true : fd.get('active') === 'on',

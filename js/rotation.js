@@ -294,9 +294,11 @@ export function occurrenceKind(r, n = (r.seq || 0) + 1) {
     : { alt: false, typeId: r.typeId, note: r.note || '' };
 }
 
-/** Bugün verilmesi gereken tekrarlayan görevler. */
+export const isWeekendDay = (day) => isWeekend(day);
+
+/** Bugün verilmesi gereken tekrarlayan görevler. Hafta sonu hariç olanlar cumartesi/pazar verilmez. */
 export function dueRecurring(state, today = dayKey()) {
-  return (state.recurring || []).filter((r) => r.active !== false && issueDay(r) <= today);
+  return (state.recurring || []).filter((r) => r.active !== false && issueDay(r) <= today && !(r.skipWeekends && isWeekend(today)));
 }
 
 /**
@@ -306,6 +308,7 @@ export function dueRecurring(state, today = dayKey()) {
 export function runRecurring(state, recurringId, { id, now = Date.now(), today = dayKey(now) } = {}) {
   const r = (state.recurring || []).find((x) => x.id === recurringId);
   if (!r || r.active === false || issueDay(r) > today) return null; // başka biri zaten verdi
+  if (r.skipWeekends && isWeekend(today)) return null; // hafta sonu görev verilmez
   // Kaçırılan tekrarları atla; verilen görev en son kaçırılan tekrara göre belirlenir.
   let seq = (r.seq || 0) + 1;
   let next = nextOccurrence(r);
@@ -315,7 +318,8 @@ export function runRecurring(state, recurringId, { id, now = Date.now(), today =
   }
   const kind = occurrenceKind(r, seq);
   const out = assign(state, kind.typeId, r.seniorityId, {
-    id, now, by: '🔁 Otomatik', byId: null, note: kind.note, dueDate: r.nextDate < today ? today : r.nextDate,
+    id, now, by: '🔁 Otomatik', byId: null, note: kind.note,
+    dueDate: (() => { const d = r.nextDate < today ? today : r.nextDate; return r.skipWeekends ? skipWeekend(d) : d; })(),
   });
   const recurring = out.state.recurring.map((x) => (x.id === r.id ? { ...x, nextDate: next, lastRun: today, seq } : x));
   return { state: { ...out.state, recurring }, assignment: { ...out.assignment, recurringId: r.id, recurringSeq: seq } };

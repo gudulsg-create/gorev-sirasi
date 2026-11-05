@@ -337,3 +337,17 @@ test('günlük tekrar: her gün sıradakine, hafta sonu atlanabilir', () => {
   // aynı gün ikinci kez verilmez
   assert.equal(runRecurring(s2, 'r1', { today: '2026-11-06' }), null);
 });
+
+test('hafta sonu hariç: cumartesi/pazar hiç görev verilmez, pazartesiye kalır', () => {
+  // 2026-11-07 Cmt, 08 Paz, 09 Pzt
+  let s = { ...team(), recurring: [{ id: 'r1', typeId: 'patoloji', seniorityId: 'k5', every: 1, unit: 'day', nextDate: '2026-11-07', leadDays: 0, skipWeekends: true }] };
+  assert.equal(dueRecurring(s, '2026-11-07').length, 0);
+  assert.equal(runRecurring(s, 'r1', { today: '2026-11-08' }), null);
+  const r = runRecurring(s, 'r1', { id: 'a', today: '2026-11-09', now: new Date('2026-11-09T08:00').getTime() });
+  assert.equal(r.assignment.dueDate, '2026-11-09');
+  assert.equal(r.state.recurring[0].nextDate, '2026-11-10');
+  // aylık görevin son günü hafta sonuna denk gelirse pazartesiye kayar
+  const m = { ...team(), recurring: [{ id: 'm', typeId: 'kitap', seniorityId: 'k5', every: 1, unit: 'month', nextDate: '2026-11-08', leadDays: 3, skipWeekends: true }] };
+  const rm = runRecurring(m, 'm', { id: 'b', today: '2026-11-05', now: new Date('2026-11-05T08:00').getTime() });
+  assert.equal(rm.assignment.dueDate, '2026-11-09');
+});

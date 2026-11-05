@@ -93,6 +93,23 @@ Ayarlar → **İçe aktar** ile ekip dosyasını (JSON) bir kez yükleyin. Fireb
 
 > **Not:** PIN kontrolü tarayıcıda yapılır. Günlük kullanımda başkası adına işlem yapmayı engeller, ama tarayıcı geliştirici araçlarını bilen biri bu kontrolü aşabilir. Sunucu tarafında zorunlu kimlik doğrulaması gerekirse "Google ile giriş" eklenebilir.
 
+## Bildirimler (Cloudflare Workers, ücretsiz)
+
+Görev verildiğinde/aktarıldığında görevi alana, duyuru yayınlandığında ekibe telefon bildirimi gider. Bildirimi küçük bir sunucu (`worker/bildirim-worker.js`) gönderir; sunucu kaydı Firestore'dan kendisi okur ve her kişiye bir kez bildirir, bu yüzden adresini bilen biri sahte bildirim gönderemez.
+
+**Kurulum (bir kez):**
+1. **Web Push anahtarı:** Firebase konsolu → ⚙️ Proje ayarları → **Cloud Messaging** → *Web yapılandırması / Web Push sertifikaları* → **Anahtar çifti oluştur**. Çıkan **genel anahtarı** `js/firebase-config.js` içindeki `vapidKey` alanına yazın.
+2. **Hizmet hesabı anahtarı:** Proje ayarları → **Hizmet hesapları** → **Yeni özel anahtar oluştur** → bir JSON dosyası iner. *Bu dosyayı kimseyle paylaşmayın, GitHub'a yüklemeyin.*
+3. **Cloudflare:** <https://dash.cloudflare.com> adresinde ücretsiz hesap açın → **Workers & Pages** → **Create** → **Create Worker** → ad: `gorev-sirasi-bildirim` → **Deploy** → **Edit code**: içeriği silip `worker/bildirim-worker.js` dosyasının tamamını yapıştırın → **Deploy**.
+4. Worker → **Settings** → **Variables and Secrets** → **Add**:
+   - Tür *Secret*, ad `FIREBASE_SA`, değer: 2. adımdaki JSON dosyasının **tüm içeriği**.
+   - Tür *Text*, ad `ALLOWED_ORIGIN`, değer: `https://KULLANICI.github.io`
+   - Tür *Text*, ad `APP_URL`, değer: uygulamanın tam adresi (ör. `https://KULLANICI.github.io/gorev-sirasi/`)
+5. Worker adresini (ör. `https://gorev-sirasi-bildirim.HESAP.workers.dev`) `js/firebase-config.js` içindeki `notifyUrl` alanına yazın.
+6. Herkes uygulamada **Hesabım → 🔔 Bildirimler → Aç** der. iPhone'da önce uygulama ana ekrana eklenip simgeden açılmalıdır (iOS 16.4+).
+
+Cloudflare Workers'ın ücretsiz planı bu kullanım için fazlasıyla yeterlidir; kart gerekmez.
+
 ## Güvenlik ve gizlilik
 
 - Uygulama adresini bilen herkes görev verebilir ve listeyi görebilir. Adresi yalnızca ekiple paylaşın.

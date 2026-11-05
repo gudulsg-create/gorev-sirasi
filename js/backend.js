@@ -38,6 +38,8 @@ function createLocalBackend(teamId) {
   };
   return {
     kind: 'local',
+    async getPushToken() { return null; },
+    async deletePushToken() {},
     subscribe(cb) {
       listeners.add(cb);
       cb(structuredClone(data));
@@ -84,8 +86,25 @@ async function createFirebaseBackend(config, teamId) {
     if (!snap.exists()) tx.set(teamRef, defaultState());
   });
 
+  let messaging = null;
+  async function getMessagingMod() {
+    const m = await import(`${CDN}/firebase-messaging.js`);
+    if (!(await m.isSupported())) throw new Error('Bu tarayıcı bildirimleri desteklemiyor.');
+    messaging = messaging || m.getMessaging(app);
+    return m;
+  }
   return {
     kind: 'firebase',
+    async getPushToken(serviceWorkerRegistration, vapidKey) {
+      const m = await getMessagingMod();
+      return m.getToken(messaging, { vapidKey, serviceWorkerRegistration });
+    },
+    async deletePushToken() {
+      try {
+        const m = await getMessagingMod();
+        await m.deleteToken(messaging);
+      } catch { /* yoksay */ }
+    },
     subscribe(cb) {
       let state = null;
       let assignments = null;

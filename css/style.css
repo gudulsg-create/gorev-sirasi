@@ -330,3 +330,7 @@ html[data-theme='sl'] .month-card { border-color: var(--yellow-2); background: l
 .theme-opt { font: inherit; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 2px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; }
 .theme-opt[aria-pressed='true'] { border-color: var(--brand-2); font-weight: 700; }
 .theme-swatch { width: 28px; height: 18px; border-radius: 5px; display: inline-block; }
+
+/* Bildirim kutusu */
+.notif-box { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--soft); margin: 6px 0; }
+.notif-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }

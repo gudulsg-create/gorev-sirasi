@@ -1,6 +1,6 @@
 // Basit service worker: önce ağ, ağ yoksa son kaydedilen sürüm.
 // Böylece güncellemeler hemen gelir; internet yokken uygulama boş sayfa yerine açılır.
-const CACHE = 'gorev-sirasi-v1';
+const CACHE = 'gorev-sirasi-v2';
 const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/backend.js', './js/rotation.js', './js/firebase-config.js', './manifest.webmanifest', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -30,4 +30,39 @@ self.addEventListener('fetch', (e) => {
       })
       .catch(() => caches.match(req).then((hit) => hit || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error()))),
   );
+});
+
+// ---------------- Bildirimler ----------------
+self.addEventListener('push', (e) => {
+  let d = {};
+  try {
+    const p = e.data ? e.data.json() : {};
+    d = p.data || p.notification || p;
+  } catch {
+    d = { body: e.data ? e.data.text() : '' };
+  }
+  const title = d.title || 'Görev Sırası';
+  e.waitUntil(self.registration.showNotification(title, {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data: { url: d.url || self.registration.scope },
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (w.url.startsWith(self.registration.scope)) {
+        await w.focus();
+        try { await w.navigate(url); } catch { /* yoksay */ }
+        return;
+      }
+    }
+    await self.clients.openWindow(url);
+  })());
 });

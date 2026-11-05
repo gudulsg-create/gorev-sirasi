@@ -24,3 +24,10 @@ export const firebaseConfig = {
 
 // Aynı Firebase projesinde birden fazla ekip/klinik tutmak isterseniz her biri için farklı bir ad verin.
 export const teamId = 'ekip';
+
+// ---------------- Bildirimler (isteğe bağlı) ----------------
+// İkisi de doluysa uygulamada "Bildirimleri aç" düğmesi görünür. Kurulum: README → "Bildirimler".
+// Firebase konsolu → Proje ayarları → Cloud Messaging → Web Push sertifikaları → "Anahtar çifti" (genel anahtar):
+export const vapidKey = '';
+// Cloudflare Worker adresi, ör. https://gorev-sirasi-bildirim.KULLANICI.workers.dev
+export const notifyUrl = '';

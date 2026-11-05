@@ -1,4 +1,7 @@
-import { firebaseConfig, teamId } from './firebase-config.js';
+import * as cfg from './firebase-config.js';
+const { firebaseConfig, teamId } = cfg;
+const vapidKey = cfg.vapidKey || '';
+const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
 
@@ -279,7 +282,7 @@ function installHint() {
   const body = deferredInstall
     ? h('button', { class: 'btn primary small', onclick: async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); } }, 'Ana ekrana ekle')
     : isIOS()
-      ? h('span', { class: 'small' }, 'Safari\'de alttaki ', h('strong', {}, 'Paylaş (□↑)'), ' → ', h('strong', {}, 'Ana Ekrana Ekle'), '.')
+      ? h('span', { class: 'small' }, 'Safari\'de alttaki ', h('strong', {}, 'Paylaş (□↑)'), ' → ', h('strong', {}, 'Ana Ekrana Ekle'), '.', pushConfigured() ? ' Bildirim almak için de gerekli.' : '')
       : h('span', { class: 'small' }, 'Tarayıcı menüsünden (⋮) ', h('strong', {}, 'Ana ekrana ekle'), '.');
   return h('div', { class: 'install-hint' },
     h('img', { src: 'icons/icon-192.png', alt: '', width: 40, height: 40 }),
@@ -397,7 +400,10 @@ async function checkRecurring() {
           const res = runRecurring(state, r.id, { id: uid() });
           return res ? { state: res.state, add: res.assignment } : {};
         });
-        if (out?.add) toast(`🔁 Otomatik görev: ${out.add.typeName} → ${out.add.personName}`);
+        if (out?.add) {
+          toast(`🔁 Otomatik görev: ${out.add.typeName} → ${out.add.personName}`);
+          notify('assignment', out.add.id);
+        }
       } catch (err) {
         if (isAdmin()) toast(`Otomatik görev verilemedi (${typeName(r.typeId)}): ${err.message}`);
       }
@@ -577,6 +583,7 @@ async function give(type, sen, note, dueDate = null) {
     return { state: out.state, add: out.assignment };
   });
   if (!r) return;
+  notify('assignment', r.add.id);
   showResult(r.add);
 }
 
@@ -621,6 +628,7 @@ async function doPassOn(a, fromResult = false) {
     return { state: out.state, patch: out.patch, updated: { ...cur, ...out.patch } };
   }, { assignmentId: a.id });
   if (!r) return;
+  notify('assignment', a.id);
   if (fromResult) showResult(r.updated);
   else toast(`Görev ${r.updated.personName} kişisine aktarıldı.`);
 }
@@ -636,6 +644,110 @@ async function toggleDone(a) {
     return { state: next, patch: { status: done ? 'tamamlandı' : 'aktif', completedAt: done ? Date.now() : null }, done };
   }, { assignmentId: a.id });
   if (r) toast(r.done ? 'Tamamlandı olarak işaretlendi' : 'Yeniden açıldı');
+}
+
+// --- Bildirimler ---
+const DEVICE_KEY = 'gorev-sirasi:device';
+function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id) { id = 'c' + Math.random().toString(36).slice(2, 10); localStorage.setItem(DEVICE_KEY, id); }
+    return id;
+  } catch { return 'c-gecici'; }
+}
+const pushConfigured = () => !!(backend && backend.kind === 'firebase' && vapidKey && notifyUrl);
+const pushCapable = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+/** 'yok' (kurulmamış), 'ana-ekran' (iPhone'da önce ana ekrana eklenmeli), 'desteklenmiyor', 'engelli', 'acik', 'kapali' */
+function pushState() {
+  if (!pushConfigured()) return 'yok';
+  if (isIOS() && !isStandalone()) return 'ana-ekran';
+  if (!pushCapable()) return 'desteklenmiyor';
+  if (Notification.permission === 'denied') return 'engelli';
+  const me = mePerson();
+  return Notification.permission === 'granted' && me?.push?.[deviceId()] ? 'acik' : 'kapali';
+}
+async function swReady() {
+  const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register('sw.js'));
+  await navigator.serviceWorker.ready;
+  return reg;
+}
+async function savePushToken(token) {
+  const me = mePerson();
+  if (!me) return null;
+  const dev = deviceId();
+  return run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === me.id ? { ...x, push: { ...(x.push || {}), [dev]: token } } : x)) } }));
+}
+async function removePushToken(personId) {
+  const dev = deviceId();
+  return run((st) => ({ state: { ...st, people: st.people.map((x) => {
+    if (x.id !== personId || !x.push?.[dev]) return x;
+    const push = { ...x.push };
+    delete push[dev];
+    return { ...x, push };
+  }) } }));
+}
+async function enablePush() {
+  const state = pushState();
+  if (state === 'ana-ekran') return toast('iPhone\'da bildirim için önce uygulamayı ana ekrana ekleyip oradan açın.');
+  if (state === 'desteklenmiyor') return toast('Bu tarayıcı bildirimleri desteklemiyor.');
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return toast('Bildirim izni verilmedi. Telefon ayarlarından izin verebilirsin.');
+    const token = await backend.getPushToken(await swReady(), vapidKey);
+    if (!token) throw new Error('Bildirim anahtarı alınamadı.');
+    if (await savePushToken(token)) toast('🔔 Bildirimler açıldı');
+    refreshOpenDialogs();
+  } catch (err) {
+    toast('Bildirim açılamadı: ' + (err.message || err));
+  }
+}
+async function disablePush() {
+  const me = mePerson();
+  if (!me) return;
+  await removePushToken(me.id);
+  await backend.deletePushToken();
+  toast('🔕 Bildirimler bu cihazda kapatıldı');
+  refreshOpenDialogs();
+}
+/** Uygulama açıldığında anahtarı tazele (değiştiyse kaydet). */
+let pushRefreshed = false;
+async function refreshPushToken() {
+  if (pushRefreshed || !pushConfigured() || !pushCapable() || Notification.permission !== 'granted' || !mePerson()) return;
+  if (isIOS() && !isStandalone()) return;
+  pushRefreshed = true;
+  try {
+    const token = await backend.getPushToken(await swReady(), vapidKey);
+    if (token && mePerson()?.push?.[deviceId()] !== token) await savePushToken(token);
+  } catch { /* sessizce geç */ }
+}
+/** Sunucuya "bu kayıt için bildirim gönder" der. Sunucu kaydı kendisi doğrular. */
+function notify(kind, id) {
+  if (!notifyUrl || !id) return;
+  fetch(notifyUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ team: teamId, kind, id }), keepalive: true }).catch(() => {});
+}
+function notifBlock() {
+  const st = pushState();
+  if (st === 'yok') return null;
+  const msg = {
+    'ana-ekran': 'iPhone\'da bildirim almak için uygulamayı ana ekrana ekleyip simgeden açman gerekiyor.',
+    desteklenmiyor: 'Bu tarayıcı bildirimleri desteklemiyor.',
+    engelli: 'Bildirimler bu cihazda engellenmiş. Telefonun Ayarlar → Bildirimler bölümünden Görev Sırası\'na izin ver.',
+    acik: 'Sana görev verildiğinde ve yeni duyuru geldiğinde bu cihaza bildirim gelir.',
+    kapali: 'Sana görev verildiğinde ve yeni duyuru geldiğinde telefonuna bildirim gelsin.',
+  }[st];
+  return h('div', { class: 'notif-box' },
+    h('div', { class: 'notif-text' }, h('strong', {}, st === 'acik' ? '🔔 Bildirimler açık' : '🔕 Bildirimler kapalı'), h('span', { class: 'muted small' }, msg)),
+    st === 'kapali' ? h('button', { type: 'button', class: 'btn primary small', onclick: enablePush }, 'Aç') : null,
+    st === 'acik' ? h('button', { type: 'button', class: 'btn small', onclick: disablePush }, 'Kapat') : null,
+  );
+}
+function refreshOpenDialogs() {
+  render();
+  if (dlg.open && dlgForm.querySelector('.notif-box')) {
+    const box = dlgForm.querySelector('.notif-box');
+    const fresh = notifBlock();
+    if (fresh) box.replaceWith(fresh);
+  }
 }
 
 // --- Duyuru panosu ---
@@ -731,7 +843,9 @@ async function postAnnouncement() {
   const text = ta?.value.trim();
   if (!text) return toast('Duyuru boş olamaz.');
   if (!me) return openLogin();
-  const r = await run((st) => ({ state: addAnnouncement(st, { id: uid(), text, by: me.name, byId: me.id }) }));
+  const annId = uid();
+  const r = await run((st) => ({ state: addAnnouncement(st, { id: annId, text, by: me.name, byId: me.id }) }));
+  if (r) notify('announcement', annId);
   if (!r) return;
   // Gönderim sırasında ekran yenilenmiş olabilir; güncel kutuyu temizle.
   const fresh = dlgForm.querySelector('textarea[name=ann]');
@@ -1063,6 +1177,7 @@ function settingsView() {
     h('h2', {}, 'Hesabım'),
     h('p', {}, `${mePerson().name} · ${senName(mePerson().seniorityId)}`),
     photoPicker(mePerson()),
+    notifBlock(),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
       h('button', { class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'),
@@ -1221,6 +1336,7 @@ async function logout() {
   if (dlg.open) dlg.close();
   const mp = mePerson();
   if (!(await askConfirm(`${mp ? mp.name + ' olarak açık oturum' : 'Oturum'} bu cihazda kapatılsın mı? Tekrar girmek için PIN gerekir.`, 'Çıkış yap'))) return;
+  if (mp?.push?.[deviceId()]) { await removePushToken(mp.id); backend.deletePushToken(); }
   saveSession(null);
   tab = 'give';
   render();
@@ -1234,6 +1350,7 @@ function openAccount() {
   const body = h('div', { class: 'form-grid' },
     h('p', {}, h('strong', {}, mp.name), ` · ${senName(mp.seniorityId)}`),
     photoPicker(mp),
+    notifBlock(),
     h('p', { class: 'muted small' }, 'PIN\'ini değiştirmek için mevcut PIN\'ini gir.'),
     pinInput('old', 'Mevcut PIN'),
     pinInput('new1', 'Yeni PIN'),
@@ -1292,6 +1409,12 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => { /* yoksay */ });
 }
 
+function applyHash() {
+  if (location.hash === '#gorevlerim') tab = 'mine';
+}
+applyHash();
+window.addEventListener('hashchange', () => { applyHash(); render(); });
+
 (async function start() {
   const conn = document.getElementById('conn');
   try {
@@ -1326,5 +1449,6 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
     render();
     if (annOpen && dlg.open) renderAnnouncements();
     checkRecurring();
+    refreshPushToken();
   });
 })();

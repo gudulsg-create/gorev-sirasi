@@ -1,6 +1,6 @@
 // Basit service worker: önce ağ, ağ yoksa son kaydedilen sürüm.
 // Böylece güncellemeler hemen gelir; internet yokken uygulama boş sayfa yerine açılır.
-const CACHE = 'gorev-sirasi-v2';
+const CACHE = 'gorev-sirasi-v3';
 const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/backend.js', './js/rotation.js', './js/firebase-config.js', './manifest.webmanifest', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -19,8 +19,9 @@ self.addEventListener('fetch', (e) => {
   const own = url.origin === self.location.origin;
   const sdk = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
   if (!own && !sdk) return;
+  // Kendi dosyalarımızda tarayıcı önbelleğini atla (her açılışta güncel sürümü kontrol et).
   e.respondWith(
-    fetch(req)
+    fetch(own ? new Request(req, { cache: 'no-cache' }) : req)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

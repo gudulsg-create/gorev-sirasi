@@ -1,6 +1,7 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
+export const APP_VERSION = '2026.11.05-2';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
@@ -670,7 +671,7 @@ function pushState() {
   return Notification.permission === 'granted' && me?.push?.[deviceId()] ? 'acik' : 'kapali';
 }
 async function swReady() {
-  const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register('sw.js'));
+  const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }));
   await navigator.serviceWorker.ready;
   return reg;
 }
@@ -1186,6 +1187,7 @@ function settingsView() {
   const s = S();
   const connBlock = h('div', { class: 'settings-block' },
     h('h2', {}, 'Bağlantı'),
+    h('p', { class: 'muted small' }, `Uygulama sürümü: ${APP_VERSION}`),
     backend.kind === 'firebase'
       ? h('p', {}, `✅ Firebase'e bağlı (ekip: ${teamId}). Değişiklikler herkese anında yansır.`)
       : h('p', {}, '📱 Yerel mod: veriler yalnızca bu cihazda. Ekipçe ortak sıra için README\'deki Firebase kurulumunu yapın.'),
@@ -1423,7 +1425,15 @@ document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener(
 document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => { /* yoksay */ });
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .then((reg) => reg.update().catch(() => {}))
+    .catch(() => { /* yoksay */ });
+  // Yeni sürüm devreye girince sayfayı bir kez yenile (eski kodla devam edilmesin).
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
 }
 
 function applyHash() {

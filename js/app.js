@@ -194,7 +194,10 @@ const update = (mutator, msg) => {
     toast('Bu değişikliği yalnızca başasistan yapabilir.');
     return Promise.resolve(null);
   }
-  return run((s) => ({ state: mutator(s) })).then((r) => r && msg && toast(msg));
+  return run((s) => ({ state: mutator(s) })).then((r) => {
+    if (r && msg) toast(msg);
+    return r;
+  });
 };
 
 function openDialog(title, body, { onSubmit, submitText = 'Kaydet', extra = [], cancelText = 'Vazgeç', cancelPrimary = false } = {}) {
@@ -1075,6 +1078,12 @@ function personRow(p, i, n, manage) {
 }
 
 /** Başasistan: kişinin tarihli izinleri. Değişiklik hemen kaydedilir. */
+/** Tarihli izin için otomatik duyuru metni. */
+function leaveAnnouncementText(name, l) {
+  const when = l.from === l.to ? `${fmtDay(l.from)} tarihinde` : `${fmtDay(l.from)} – ${fmtDay(l.to)} tarihleri arasında`;
+  return `🌴 ${name}, ${when} izinli. ${l.from === l.to ? 'O gün' : 'Bu günlerde'} görev sıralarında atlanacak.`;
+}
+
 function leaveEditor(p) {
   const list = h('ul', { class: 'leave-list' });
   const draw = (leaves) => {
@@ -1083,9 +1092,16 @@ function leaveEditor(p) {
       h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'İzni sil', onclick: () => save(leaves.filter((_, j) => j !== i)) }, '🗑'),
     )) : [h('li', { class: 'muted small' }, 'Planlı izin yok.')]));
   };
-  const save = async (leaves) => {
+  /** İzinleri kaydeder. Yeni izin eklendiyse aynı işlemde sistem duyurusu da yayınlar. */
+  const save = async (leaves, added = null) => {
     const clean = cleanLeaves(leaves);
-    await update((st) => ({ ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, leaves: clean } : x)) }), 'İzinler kaydedildi');
+    const annId = added ? uid() : null;
+    const r = await update((st) => {
+      let next = { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, leaves: clean } : x)) };
+      if (added) next = addAnnouncement(next, { id: annId, text: leaveAnnouncementText(p.name, added), by: '🤖 Sistem', byId: 'sistem' });
+      return next;
+    }, added ? 'İzin kaydedildi ve duyuruldu' : 'İzinler kaydedildi');
+    if (added && r) notify('announcement', annId);
     draw(clean);
   };
   const from = h('input', { type: 'date', min: dayKey(), 'aria-label': 'İzin başlangıcı' });
@@ -1099,7 +1115,8 @@ function leaveEditor(p) {
         if (!from.value || !to.value) return toast('Başlangıç ve bitiş tarihini seç.');
         if (to.value < from.value) return toast('Bitiş, başlangıçtan önce olamaz.');
         const current = S().people.find((x) => x.id === p.id)?.leaves || [];
-        save([...current, { from: from.value, to: to.value }]);
+        const added = { from: from.value, to: to.value };
+        save([...current, added], added);
         from.value = ''; to.value = '';
       } }, 'Ekle')),
     h('small', { class: 'muted' }, 'Kişi bu tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner.'),

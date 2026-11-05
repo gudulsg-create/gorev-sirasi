@@ -23,7 +23,7 @@ Asistanlar arasında kıdeme göre, **sırayla ve adil** görev dağıtan bir we
 
 - **Görevlerim** sekmesi: sana verilen açık görevler (son güne göre sıralı), verdiğin ve henüz bitmemiş görevler ve son tamamladıkların. Sekmedeki kırmızı sayı açık görev sayını gösterir.
 - **Teslim tarihi:** Görev verirken isteğe bağlı "Son gün" seçilir (Bugün / Yarın / 3 gün / 1 hafta ya da takvimden). Son günü geçen açık görevler kırmızı "Gecikti" etiketiyle görünür.
-- **Tarihli izin:** Başasistan Ekip → ✎ → *Tarihli izin* bölümünden tarih aralığı ekler. Kişi o tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner. Ekip listesinde "İzinde" / "Planlı izin" olarak görünür.
+- **Tarihli izin:** Başasistan Ekip → ✎ → *Tarihli izin* bölümünden tarih aralığı ekler. Kişi o tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner. Ekip listesinde "İzinde" / "Planlı izin" olarak görünür. İzin eklendiğinde duyurulara **🤖 Sistem** adıyla otomatik duyuru düşer (bildirimler kuruluysa ekibe bildirim de gider).
 
 ## Tekrarlayan görevler
 

@@ -28,6 +28,6 @@ export const teamId = 'ekip';
 // ---------------- Bildirimler (isteğe bağlı) ----------------
 // İkisi de doluysa uygulamada "Bildirimleri aç" düğmesi görünür. Kurulum: README → "Bildirimler".
 // Firebase konsolu → Proje ayarları → Cloud Messaging → Web Push sertifikaları → "Anahtar çifti" (genel anahtar):
-export const vapidKey = '';
+export const vapidKey = 'BLjLybNptc_Osg7Vi6uwQbSUnDNVYC2fOk8_ZKLmUQ3eIJjh0SpJyav5yxxunvMOMS4z_ojs4-bKorsUoKHVK4o';
 // Cloudflare Worker adresi, ör. https://gorev-sirasi-bildirim.KULLANICI.workers.dev
-export const notifyUrl = '';
+export const notifyUrl = 'https://gorev-sirasi-bildirim.gudul-sg.workers.dev';

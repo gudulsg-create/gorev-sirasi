@@ -1,7 +1,7 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2026.11.05-4';
+export const APP_VERSION = '2026.11.05-5';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';

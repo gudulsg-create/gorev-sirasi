@@ -21,14 +21,14 @@ test('çok yavaş ve kısa sürükleme sayılmaz, yavaş ama uzun sürükleme sa
   assert.equal(swipeDirection({ dx: -200, dy: 5, dt: 1500 }), 1);
 });
 
-test('komşu sekme sırası: Görev ver → Görevlerim → Geçmiş → Ekip → Ayarlar', () => {
-  assert.deepEqual(TAB_ORDER, ['give', 'mine', 'history', 'team', 'settings']);
+test('komşu sekme sırası: Görev ver → Görevlerim → Geçmiş → Ekip', () => {
+  assert.deepEqual(TAB_ORDER, ['give', 'mine', 'history', 'team']);
   assert.equal(neighborTab(TAB_ORDER, 'give', 1), 'mine');
   assert.equal(neighborTab(TAB_ORDER, 'team', -1), 'history');
 });
 
 test('uçlarda başa sarmaz', () => {
   assert.equal(neighborTab(TAB_ORDER, 'give', -1), null);
-  assert.equal(neighborTab(TAB_ORDER, 'settings', 1), null);
+  assert.equal(neighborTab(TAB_ORDER, 'team', 1), null);
   assert.equal(neighborTab(TAB_ORDER, 'bilinmeyen', 1), null);
 });

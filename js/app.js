@@ -1,17 +1,21 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2.0.1';
+export const APP_VERSION = '3.0.0';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { TAB_ORDER, swipeDirection, neighborTab } from './swipe.js';
+import { fmtDay, dueInfo, dayGroupLabel, typeIcon } from './format.js';
+import { icon } from './icons.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
 
 // ---------- Durum ----------
 let backend;
 let data = null; // { state, assignments }
 let tab = 'give';
+let prevTab = 'give'; // Ayarlar kapanınca dönülecek sekme
 let historyFilter = 'all';
+let connText = 'Bağlanıyor…';
 // Oturum: bu cihazda giriş yapan kişi ve doğrulanmış PIN özeti.
 // Başasistan kişinin PIN'ini değiştirirse özet tutmaz ve oturum kendiliğinden kapanır.
 const SESSION_KEY = 'gorev-sirasi:session';
@@ -51,6 +55,11 @@ let pinLockedUntil = 0;
 const view = document.getElementById('view');
 const dlg = document.getElementById('dlg');
 const dlgForm = document.getElementById('dlg-form');
+const actDlg = document.getElementById('act-dlg');
+const actForm = document.getElementById('act-form');
+const navBar = document.getElementById('nav-bar');
+const navTitle = document.getElementById('nav-title');
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // ---------- Yardımcılar ----------
 /** Güvenli DOM oluşturucu: metinler her zaman metin düğümü olarak eklenir. */
@@ -64,7 +73,7 @@ function h(tag, props = {}, ...children) {
     else if (k in el && typeof v !== 'string') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) {
+  for (const c of children.flat(Infinity)) {
     if (c == null || c === false) continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
@@ -75,21 +84,74 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const S = () => data.state;
 const typeName = (id) => S().taskTypes.find((t) => t.id === id)?.name ?? 'Silinmiş görev türü';
 const senName = (id) => S().seniorities.find((s) => s.id === id)?.name ?? '—';
-const fmtDay = (day) => {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(y, m - 1, d));
-};
 const addDays = (n) => dayKey(Date.now() + n * 86400000);
-/** Teslim tarihi etiketi: geçti / bugün / tarih. */
-function dueBadge(a) {
-  if (!a.dueDate) return null;
-  const today = dayKey();
-  const open = a.status === 'aktif';
-  if (open && a.dueDate < today) return h('span', { class: 'due late' }, `⚠️ Gecikti · son gün ${fmtDay(a.dueDate)}`);
-  if (open && a.dueDate === today) return h('span', { class: 'due today' }, '⏰ Son gün bugün');
-  return h('span', { class: 'due' }, `📅 Son gün: ${fmtDay(a.dueDate)}`);
+const fmtTime = (ms) => new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(ms);
+const fmtWhen = (ms) => `${dayGroupLabel(ms)} ${fmtTime(ms)}`;
+const firstName = (name = '') => name.split(' ')[0];
+const personById = (id) => S().people.find((p) => p.id === id);
+
+// ---------- Liste bileşenleri ----------
+/**
+ * iOS tarzı liste satırı. onclick verilirse satırın tamamı düğmedir;
+ * içinde başka düğme (trailing) olacaksa onclick verme.
+ */
+function cell(o = {}) {
+  const tag = o.tag || (o.onclick ? 'button' : 'div');
+  const lead = o.icon ? h('span', { class: `cell-icon ${o.tile || ''}` }, icon(o.icon)) : o.lead ?? null;
+  return h(tag, {
+    class: `cell ${o.icon ? 'has-icon' : ''} ${o.av ? 'has-av' : ''} ${o.cls || ''}`,
+    type: tag === 'button' ? 'button' : null,
+    onclick: o.onclick,
+    disabled: o.disabled,
+    'aria-label': o.label,
+  },
+  o.before ?? null,
+  o.av ?? lead,
+  h('span', { class: 'cell-body' },
+    h('span', { class: `cell-title ${o.titleCls || ''}` }, o.title),
+    o.sub != null && o.sub !== '' ? h('span', { class: `cell-sub ${o.subCls || ''}` }, o.sub) : null,
+    o.extra ?? null),
+  o.detail != null ? h('span', { class: 'cell-detail' }, o.detail) : null,
+  o.trailing ?? null,
+  o.chev ? icon('chevron', 14, 'chev') : null);
 }
-const fmtDate = (ms) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
+/** Grup başlığı + satırlar + dipnot. */
+function section(title, rows, { foot, action } = {}) {
+  const list = [rows].flat(Infinity).filter(Boolean);
+  return [
+    title ? h('h2', { class: 'group-title' }, h('span', {}, title), action ?? null) : null,
+    list.length ? h('div', { class: 'group' }, list) : null,
+    foot ? h('p', { class: 'group-foot' }, foot) : null,
+  ];
+}
+/** Etiketli giriş satırı. */
+const fieldCell = (label, el) => h('label', { class: 'cell' }, h('span', { class: 'field-label' }, label), el);
+/** iOS anahtarı. */
+const toggle = (props) => h('span', { class: 'switch-ios' }, h('input', { type: 'checkbox', role: 'switch', ...props }));
+function emptyState(ic, title, text, btn, onclick) {
+  return h('div', { class: 'empty-state' },
+    h('span', { class: 'big-ico' }, icon(ic, 34)),
+    h('h2', {}, title),
+    text ? h('p', {}, text) : null,
+    btn ? h('button', { class: 'btn-lg primary', onclick }, btn) : null);
+}
+/** Sayfanın büyük başlığı; sağda profil fotoğrafı (Ayarlar'ı açar). */
+function pageHead(title, { eyebrow, right } = {}) {
+  navTitle.textContent = title;
+  return h('header', { class: 'page-head' },
+    h('div', {}, eyebrow ? h('span', { class: 'eyebrow' }, eyebrow) : null, h('h1', { class: 'large-title' }, title)),
+    right !== undefined ? right : meButton());
+}
+function meButton() {
+  const mp = mePerson();
+  if (mp) return h('button', { class: 'avatar-btn', 'aria-label': 'Ayarlar ve hesabım', onclick: openSettings }, avatar(mp, 36));
+  if (data && !S().people.length) return h('button', { class: 'text-btn', onclick: openSettings }, 'Ayarlar');
+  return null;
+}
+function dueEl(a) {
+  const d = dueInfo(a.dueDate, dayKey(), a.status);
+  return d ? h('span', { class: `cell-sub tone-${d.tone}` }, d.text) : null;
+}
 
 // ---------- Profil fotoğrafı ----------
 const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -139,12 +201,12 @@ async function makePhoto(file) {
 const canEditPhoto = (personId) => isAdmin() || mePerson()?.id === personId;
 /** Fotoğraf seçici + önizleme; değişince hemen kaydeder. */
 function photoPicker(p) {
-  const preview = h('span', { class: 'photo-preview' }, avatar(p, 72));
+  const preview = h('span', {}, avatar(p, 88));
   const savePhoto = async (photo) => {
     if (!canEditPhoto(p.id)) return toast('Bu kişinin fotoğrafını değiştiremezsin.');
     const r = await run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, photo } : x)) } }));
     if (!r) return;
-    preview.replaceChildren(avatar({ ...p, photo }, 72));
+    preview.replaceChildren(avatar({ ...p, photo }, 88));
     removeBtn.hidden = !photo;
     pickLabel.firstChild.textContent = photo ? 'Fotoğrafı değiştir' : 'Fotoğraf ekle';
     toast(photo ? 'Fotoğraf kaydedildi' : 'Fotoğraf kaldırıldı');
@@ -155,30 +217,78 @@ function photoPicker(p) {
     if (!file) return;
     try { await savePhoto(await makePhoto(file)); } catch (err) { toast(err.message); }
   } });
-  const removeBtn = h('button', { type: 'button', class: 'btn small danger-ghost', hidden: !p.photo, onclick: () => savePhoto(null) }, 'Kaldır');
-  const pickLabel = h('label', { class: 'btn small' }, p.photo ? 'Fotoğrafı değiştir' : 'Fotoğraf ekle', input);
-  return h('div', { class: 'photo-picker' },
-    preview,
-    h('div', { class: 'row wrap' }, pickLabel, removeBtn),
-  );
+  const removeBtn = h('button', { type: 'button', class: 'text-btn danger', hidden: !p.photo, onclick: () => savePhoto(null) }, 'Kaldır');
+  const pickLabel = h('label', { class: 'text-btn' }, p.photo ? 'Fotoğrafı değiştir' : 'Fotoğraf ekle', input);
+  return h('div', { class: 'photo-edit' }, preview, h('div', { class: 'row' }, pickLabel, removeBtn));
 }
 
+// ---------- Bildirim balonu, onay, eylem sayfası ----------
 let toastTimer;
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
+const DANGER_WORDS = ['Sil', 'İptal et', 'Çıkar', 'Çıkış yap', 'Geçir', 'Yükle'];
 function askConfirm(message, yesText = 'Evet') {
   const d = document.getElementById('confirm-dlg');
   document.getElementById('confirm-msg').textContent = message;
-  document.getElementById('confirm-yes').textContent = yesText;
+  const yes = document.getElementById('confirm-yes');
+  yes.textContent = yesText;
+  yes.classList.toggle('danger', DANGER_WORDS.includes(yesText));
   d.returnValue = '';
   d.showModal();
   return new Promise((resolve) => d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }));
+}
+
+/** Kapanış animasyonunu oynatıp pencereyi kapatır. */
+function animateClose(d, ms) {
+  if (!d.open) return Promise.resolve();
+  if (d._closing) return d._closing;
+  d.classList.add('closing');
+  d._closing = new Promise((res) => {
+    d._closeTimer = setTimeout(() => {
+      d.classList.remove('closing');
+      d.style.transform = '';
+      d.style.transition = '';
+      d._closing = null;
+      d.close();
+      res();
+    }, reducedMotion() ? 0 : ms);
+  });
+  return d._closing;
+}
+function cancelClose(d) {
+  clearTimeout(d._closeTimer);
+  d._closing = null;
+  d.classList.remove('closing');
+  d.style.transform = '';
+  d.style.transition = '';
+}
+const closeDlg = () => animateClose(dlg, 260);
+const closeAct = () => animateClose(actDlg, 240);
+for (const d of [dlg, actDlg]) {
+  d.addEventListener('cancel', (e) => { e.preventDefault(); animateClose(d, 250); });
+  d.addEventListener('click', (e) => { if (e.target === d) animateClose(d, 250); });
+}
+
+/**
+ * iOS eylem sayfası: başlık, (isteğe bağlı) emoji sırası, seçenekler ve ayrı "Vazgeç".
+ * items: { label, danger?, onSelect }
+ */
+function actionSheet(title, items, { emojis = null } = {}) {
+  cancelClose(actDlg);
+  actForm.replaceChildren(
+    h('div', { class: 'as-group' },
+      title ? h('div', { class: 'as-title' }, title) : null,
+      emojis,
+      items.filter(Boolean).map((it) => h('button', { type: 'button', class: `as-btn ${it.danger ? 'danger' : ''}`, onclick: async () => { await closeAct(); it.onSelect(); } }, it.label))),
+    h('div', { class: 'as-group' }, h('button', { type: 'button', class: 'as-btn cancel', onclick: closeAct }, 'Vazgeç')),
+  );
+  if (!actDlg.open) actDlg.showModal();
 }
 
 /** Bir işlemi çalıştırır; hata olursa kullanıcıya gösterir. */
@@ -202,77 +312,103 @@ const update = (mutator, msg) => {
   });
 };
 
-function openDialog(title, body, { onSubmit, submitText = 'Kaydet', extra = [], cancelText = 'Vazgeç', cancelPrimary = false } = {}) {
-  dlgForm.replaceChildren(...[
-    title && h('h2', {}, title),
-    body,
-    h('div', { class: 'dlg-actions' },
-      extra,
-      h('span', { class: 'spacer' }),
-      cancelText && h('button', { type: 'button', class: cancelPrimary ? 'btn primary' : 'btn', onclick: () => dlg.close() }, cancelText),
-      onSubmit && h('button', { type: 'submit', class: 'btn primary' }, submitText),
+// ---------- Alttan açılan sayfa ----------
+/**
+ * Sayfayı açar (zaten açıksa içeriğini değiştirir).
+ * Üstte: solda vazgeç, ortada başlık, sağda kaydet. extra: alttaki büyük düğmeler.
+ */
+function openDialog(title, body, { onSubmit, submitText = 'Kaydet', extra = [], cancelText = 'Vazgeç', kind = '' } = {}) {
+  cancelClose(dlg);
+  dlgForm.dataset.kind = kind;
+  const extras = [extra].flat().filter(Boolean);
+  dlgForm.replaceChildren(
+    h('div', { class: 'grabber', 'aria-hidden': 'true' }),
+    h('div', { class: 'sheet-head' },
+      h('span', { class: 'left' }, cancelText ? h('button', { type: 'button', class: 'text-btn', onclick: closeDlg }, cancelText) : null),
+      title ? h('h2', {}, title) : h('span'),
+      h('span', { class: 'right' }, onSubmit ? h('button', { type: 'submit', class: 'text-btn bold' }, submitText) : null),
     ),
-  ].filter(Boolean));
+    h('div', { class: 'sheet-body' }, body, extras.length ? h('div', { class: 'btn-stack' }, extras) : null),
+  );
   dlgForm.onsubmit = async (e) => {
     e.preventDefault();
     if (!onSubmit || !dlgForm.reportValidity()) return;
-    if ((await onSubmit(new FormData(dlgForm))) !== false) dlg.close();
+    if ((await onSubmit(new FormData(dlgForm))) !== false) closeDlg();
   };
   if (!dlg.open) dlg.showModal();
-  dlgForm.querySelector('input:not([type=checkbox])')?.focus();
 }
-dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+/** Alttaki büyük düğme. */
+const bigBtn = (label, onclick, cls = '') => h('button', { type: 'button', class: `btn-lg ${cls}`, onclick }, label);
+
+// Tutamaktan ya da üst kısımdan aşağı çekince sayfa kapanır.
+(function sheetDrag() {
+  let start = null;
+  dlg.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.grabber, .sheet-head') || e.target.closest('button, input, select')) return;
+    start = { y: e.clientY, t: Date.now(), dy: 0 };
+    dlg.style.transition = 'none';
+    dlg.setPointerCapture?.(e.pointerId);
+  });
+  dlg.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    start.dy = Math.max(0, e.clientY - start.y);
+    dlg.style.transform = `translateY(${start.dy}px)`;
+  });
+  const end = () => {
+    if (!start) return;
+    const { dy, t } = start;
+    start = null;
+    const fast = dy / Math.max(1, Date.now() - t) > 0.6;
+    if (dy > 110 || (fast && dy > 30)) {
+      dlg.style.transition = 'transform 0.22s cubic-bezier(0.4, 0, 1, 1)';
+      dlg.style.transform = 'translateY(100%)';
+      setTimeout(() => { dlg.style.transform = ''; dlg.style.transition = ''; if (dlg.open) dlg.close(); }, 220);
+    } else {
+      dlg.style.transition = 'transform 0.35s cubic-bezier(0.23, 1, 0.32, 1)';
+      dlg.style.transform = '';
+    }
+  };
+  dlg.addEventListener('pointerup', end);
+  dlg.addEventListener('pointercancel', end);
+})();
 
 // ---------- Görünümler ----------
 function render() {
   document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-  const mp = data ? mePerson() : null;
-  const meBtn = document.getElementById('me-btn');
-  if (mp) {
-    meBtn.replaceChildren(avatar(mp, 26), h('span', { class: 'me-text' }, mp.name));
-    meBtn.title = `${mp.name} · ${senName(mp.seniorityId)}`;
-  } else {
-    meBtn.textContent = 'Giriş yap';
-    meBtn.removeAttribute('title');
-  }
   if (!data) return;
-  if (S().people.length && !mp) {
-    view.replaceChildren(loginView());
-    return;
-  }
-  const views = { give: giveView, mine: mineView, history: historyView, team: teamView, settings: settingsView };
+  const mp = mePerson();
+  const locked = S().people.length && !mp;
+  document.querySelector('.tabs').hidden = !!locked;
   const openMine = data.assignments.filter((a) => a.status === 'aktif' && a.personId === mp?.id).length;
   const badge = document.getElementById('mine-count');
   badge.hidden = !openMine;
   badge.textContent = String(openMine);
-  view.replaceChildren(views[tab]());
+  const views = { give: giveView, mine: mineView, history: historyView, team: teamView, settings: settingsView };
+  const out = locked ? loginView() : (views[tab] || giveView)();
+  view.replaceChildren(...[out].flat(Infinity).filter(Boolean));
+  onScroll();
 }
-
-function empty(text, btn, onclick) {
-  return h('div', { class: 'empty' }, h('p', {}, text), btn && h('button', { class: 'btn primary', onclick }, btn));
-}
+function onScroll() { navBar.classList.toggle('scrolled', window.scrollY > 56); }
+window.addEventListener('scroll', onScroll, { passive: true });
 
 // --- Görev ver ---
 function giveView() {
   const s = S();
+  const eyebrow = new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
   if (!s.people.length) {
-    return empty('Önce ekibe asistanları ve kıdemlerini ekleyin.', 'Ekibi düzenle', () => { tab = 'team'; render(); });
+    return [pageHead('Görev ver', { eyebrow }), emptyState('users', 'Ekibi kur', 'Önce ekibe asistanları ve kıdemlerini ekle.', 'Ekibe git', () => switchTab('team'))];
   }
   const recent = data.assignments.filter((a) => a.status !== 'iptal').slice(0, 5);
-  return h('section', {},
+  return [
+    pageHead('Görev ver', { eyebrow }),
     installHint(),
-    announcementCard(),
-    monthCard(),
-    h('p', { class: 'lead' }, 'Vermek istediğin görevi seç:'),
-    h('div', { class: 'type-grid' },
-      s.taskTypes.map((t) => h('button', { class: 'type-btn', onclick: () => chooseSeniority(t) }, t.name)),
-    ),
-    h('h2', {}, 'Sıradakiler'),
-    nextTable(),
+    section(null, s.taskTypes.map((t) => cell({ icon: typeIcon(t.name), title: t.name, chev: true, onclick: () => chooseSeniority(t) })),
+      { foot: s.taskTypes.length ? null : 'Ayarlar → Görev türleri bölümünden görev türü ekle.' }),
+    announcementCell(),
+    monthCell(),
     upcomingRecurring(),
-    recent.length ? h('h2', {}, 'Son verilenler') : null,
-    recent.length ? h('ul', { class: 'asg-list' }, recent.map((a) => assignmentItem(a, { compact: true }))) : null,
-  );
+    recent.length ? section('Son verilenler', recent.map((a) => taskRow(a, { mode: 'compact' }))) : null,
+  ];
 }
 
 // --- Ana ekrana ekle ipucu ---
@@ -285,20 +421,19 @@ function installHint() {
   let dismissed = false;
   try { dismissed = localStorage.getItem('gorev-sirasi:install-hint') === 'kapali'; } catch { /* yoksay */ }
   if (isStandalone() || dismissed) return null;
-  const close = h('button', { class: 'icon-btn hint-close', 'aria-label': 'Kapat', onclick: () => {
+  const close = h('button', { type: 'button', class: 'text-btn', style: 'color:var(--text-3);padding:4px', 'aria-label': 'İpucunu kapat', onclick: () => {
     try { localStorage.setItem('gorev-sirasi:install-hint', 'kapali'); } catch { /* yoksay */ }
     render();
-  } }, '✕');
-  const body = deferredInstall
-    ? h('button', { class: 'btn primary small', onclick: async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); } }, 'Ana ekrana ekle')
-    : isIOS()
-      ? h('span', { class: 'small' }, 'Safari\'de alttaki ', h('strong', {}, 'Paylaş (□↑)'), ' → ', h('strong', {}, 'Ana Ekrana Ekle'), '.', pushConfigured() ? ' Bildirim almak için de gerekli.' : '')
-      : h('span', { class: 'small' }, 'Tarayıcı menüsünden (⋮) ', h('strong', {}, 'Ana ekrana ekle'), '.');
-  return h('div', { class: 'install-hint' },
-    h('img', { src: 'icons/icon-192.png', alt: '', width: 40, height: 40 }),
-    h('div', { class: 'hint-text' }, h('strong', {}, '📲 Uygulama gibi kullan'), body),
-    close,
-  );
+  } }, icon('cancel', 22));
+  const sub = deferredInstall ? 'Tek dokunuşla ana ekrana ekle.'
+    : isIOS() ? `Safari'de Paylaş → Ana Ekrana Ekle.${pushConfigured() ? ' Bildirimler için gerekli.' : ''}`
+    : 'Tarayıcı menüsünden (⋮) Ana ekrana ekle.';
+  return section(null, cell({
+    icon: 'phone', tile: 'gray', title: 'Uygulama gibi kullan', sub, subCls: 'wrap',
+    trailing: h('span', { style: 'display:flex;gap:4px;align-items:center' },
+      deferredInstall ? h('button', { type: 'button', class: 'pill-btn', onclick: async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); } }, 'Ekle') : null,
+      close),
+  }));
 }
 
 // --- Ayın elemanı ---
@@ -306,40 +441,35 @@ const monthLabel = (m) => {
   const [y, mo] = m.split('-').map(Number);
   return new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(new Date(y, mo - 1, 1));
 };
-const personById = (id) => S().people.find((p) => p.id === id);
 /** Geçen ayın kazananları (ekipte olmayanlar dahil isimleri kayıtlardan bulunur). */
 function lastMonthWinnerIds() {
   return winners(S(), prevMonth(monthKey(Date.now()))).map((w) => w.personId);
 }
-
-function monthCard() {
+function monthCell() {
   const s = S();
   const cur = monthKey(Date.now());
   const prev = prevMonth(cur);
   const won = winners(s, prev);
   const top = ranking(s, cur).slice(0, 3);
-  if (!won.length && !top.length) {
-    return h('div', { class: 'month-card empty-card' },
-      h('span', { class: 'trophy' }, '🏆'),
-      h('div', {}, h('strong', {}, 'Ayın elemanı'), h('p', { class: 'muted small' }, 'Ay boyunca "Tamamlandı" işaretlenen görevler sayılır; en çok tamamlayan ayın elemanı olur.')),
-    );
+  const nameOf = (id) => personById(id)?.name ?? 'Eski ekip üyesi';
+  let row;
+  if (won.length) {
+    row = cell({
+      av: avatar(personById(won[0].personId) || { id: won[0].personId, name: '?' }, 40),
+      title: won.map((w) => nameOf(w.personId)).join(', '),
+      sub: `${monthLabel(prev)} · ${won[0].count} görev`,
+      chev: true, onclick: () => openLeaderboard(prev),
+    });
+  } else if (top.length) {
+    row = cell({
+      icon: 'trophy', tile: 'gold', title: `${monthLabel(cur)} yarışı`,
+      sub: top.map((x) => `${firstName(nameOf(x.personId))} ${x.count}`).join(' · '),
+      chev: true, onclick: () => openLeaderboard(cur),
+    });
+  } else {
+    row = cell({ icon: 'trophy', tile: 'gold', title: 'Henüz tamamlanan yok', sub: 'Ay boyunca tamamlanan görevler sayılır.', subCls: 'wrap', onclick: () => openLeaderboard(cur), chev: true });
   }
-  return h('button', { class: 'month-card', onclick: () => openLeaderboard(won.length ? prev : cur) },
-    won.length
-      ? h('div', { class: 'winner' },
-        h('div', { class: 'winner-photos' }, won.map((w) => avatar(personById(w.personId) || { id: w.personId, name: '?' }, 52))),
-        h('div', {},
-          h('span', { class: 'month-tag' }, `🏆 ${monthLabel(prev)} ayının elemanı`),
-          h('strong', { class: 'winner-name' }, won.map((w) => personById(w.personId)?.name ?? 'Eski ekip üyesi').join(', ')),
-          h('span', { class: 'muted small' }, `${won[0].count} görev tamamladı`),
-        ),
-      )
-      : h('div', { class: 'winner' }, h('span', { class: 'trophy' }, '🏆'), h('div', {}, h('span', { class: 'month-tag' }, 'Ayın elemanı'), h('strong', {}, `${monthLabel(cur)} yarışı sürüyor`))),
-    top.length ? h('div', { class: 'race' },
-      h('span', { class: 'muted small' }, `Bu ay (${monthLabel(cur)}):`),
-      top.map((x, i) => h('span', { class: 'race-item' }, `${['🥇', '🥈', '🥉'][i]} `, avatar(personById(x.personId) || { id: x.personId, name: '?' }, 20), ` ${personById(x.personId)?.name.split(' ')[0] ?? '?'} ${x.count}`)),
-    ) : null,
-  );
+  return section('Ayın elemanı', row);
 }
 
 function openLeaderboard(month) {
@@ -348,28 +478,29 @@ function openLeaderboard(month) {
   const cur = monthKey(Date.now());
   if (!months.includes(cur)) months.push(cur);
   months.sort().reverse();
-  const list = h('ol', { class: 'leader-list' });
+  const listWrap = h('div');
   const select = h('select', { 'aria-label': 'Ay', onchange: () => fill(select.value) },
     months.map((m) => h('option', { value: m, selected: m === month }, monthLabel(m) + (m === cur ? ' (bu ay)' : ''))));
   function fill(m) {
     const r = ranking(s, m);
     const topCount = r[0]?.count;
-    list.replaceChildren(...(r.length ? r.map((x, i) => {
+    listWrap.replaceChildren(...section('Sıralama', r.length ? r.map((x, i) => {
       const p = personById(x.personId);
-      return h('li', { class: x.count === topCount ? 'top' : '', onclick: () => p && openProfile(p.id), style: p ? 'cursor:pointer' : '' },
-        h('span', { class: 'rank' }, x.count === topCount ? '🏆' : String(i + 1)),
-        avatar(p || { id: x.personId, name: '?' }, 36),
-        h('span', { class: 'leader-name' }, p?.name ?? 'Eski ekip üyesi', p ? h('small', { class: 'muted' }, senName(p.seniorityId)) : null),
-        h('strong', {}, String(x.count)),
-      );
-    }) : [h('li', { class: 'muted' }, 'Bu ay henüz tamamlanan görev yok.')]));
+      return cell({
+        before: h('span', { style: 'width:22px;text-align:center;font-weight:600;color:var(--text-2)' }, x.count === topCount ? icon('trophy', 20) : String(i + 1)),
+        av: avatar(p || { id: x.personId, name: '?' }, 36),
+        title: p?.name ?? 'Eski ekip üyesi', sub: p ? senName(p.seniorityId) : null,
+        detail: String(x.count),
+        onclick: p ? () => openProfile(p.id) : null,
+      });
+    }) : h('div', { class: 'inline-empty' }, 'Bu ay henüz tamamlanan görev yok.')).flat().filter(Boolean));
   }
   fill(month);
-  openDialog('Ayın elemanı', h('div', { class: 'form-grid' },
-    select,
-    list,
-    h('small', { class: 'muted' }, '"Tamamlandı" olarak işaretlenen görevler, görevin verildiği aya sayılır. Eşitlikte birden fazla kişi ayın elemanı olur.'),
-  ), { cancelText: 'Kapat' });
+  openDialog('Ayın elemanı', [
+    section(null, fieldCell('Ay', select)),
+    listWrap,
+    h('p', { class: 'group-foot' }, 'Tamamlanan görevler, görevin verildiği aya sayılır. Eşitlikte birden fazla kişi ayın elemanı olur.'),
+  ], { cancelText: 'Kapat' });
 }
 
 // --- Tekrarlayan görevler ---
@@ -379,21 +510,17 @@ function upcomingRecurring() {
   const s = S();
   const list = (s.recurring || []).filter((r) => r.active !== false).sort((a, b) => a.nextDate.localeCompare(b.nextDate));
   if (!list.length) return null;
-  return h('div', {},
-    h('h2', {}, '🔁 Yaklaşan otomatik görevler'),
-    h('ul', { class: 'recur-list' }, list.map((r) => {
-      const kind = occurrenceKind(r);
-      const n = nextPerson(s, kind.typeId, r.seniorityId);
-      return h('li', { class: kind.alt ? 'alt' : '' },
-        h('div', { class: 'recur-main' },
-          h('strong', {}, `${kind.alt ? '🏛 ' : ''}${typeName(kind.typeId)} · ${senName(r.seniorityId)}`),
-          kind.note ? h('span', { class: 'small' }, kind.note) : null,
-          h('span', { class: 'muted small' }, `${fmtDay(r.skipWeekends ? skipWeekend(issueDay(r)) : issueDay(r))} günü verilecek · son gün ${fmtDay(r.nextDate)} · ${recurLabel(r)}`),
-        ),
-        n ? h('span', { class: 'cell-who small' }, avatar(n, 22), n.name.split(' ')[0]) : h('span', { class: 'muted small' }, 'Müsait yok'),
-      );
-    })),
-  );
+  return section('Otomatik görevler', list.map((r) => {
+    const kind = occurrenceKind(r);
+    const n = nextPerson(s, kind.typeId, r.seniorityId);
+    const day = r.skipWeekends ? skipWeekend(issueDay(r)) : issueDay(r);
+    return cell({
+      icon: 'repeat', tile: kind.alt ? 'orange' : 'gray',
+      title: `${typeName(kind.typeId)} · ${senName(r.seniorityId)}`,
+      sub: `${fmtDay(day)} verilecek · son gün ${fmtDay(r.nextDate)}${kind.note ? ' · ' + kind.note : ''}`,
+      detail: n ? firstName(n.name) : 'Müsait yok',
+    });
+  }));
 }
 
 let recurRunning = false;
@@ -411,7 +538,7 @@ async function checkRecurring() {
           return res ? { state: res.state, add: res.assignment } : {};
         });
         if (out?.add) {
-          toast(`🔁 Otomatik görev: ${out.add.typeName} → ${out.add.personName}`);
+          toast(`Otomatik görev: ${out.add.typeName} → ${out.add.personName}`);
           notify('assignment', out.add.id);
         }
       } catch (err) {
@@ -426,11 +553,11 @@ async function checkRecurring() {
 /** "Her N. seferde farklı görev" bölümü (ör. her 3. ay yüz yüze). */
 function altBox(r) {
   const s = S();
-  const on = h('input', { type: 'checkbox', name: 'altOn', checked: r.altEvery > 1, onchange: () => { inner.hidden = !on.checked; } });
+  const on = h('input', { type: 'checkbox', role: 'switch', name: 'altOn', checked: r.altEvery > 1, onchange: () => { inner.forEach((el) => { el.hidden = !on.checked; }); } });
   const typeSel = h('select', { name: 'altTypeId' },
-    h('option', { value: '' }, 'Aynı görev (sadece not farklı)'),
+    h('option', { value: '' }, 'Aynı görev'),
     s.taskTypes.map((t) => h('option', { value: t.id, selected: t.id === r.altTypeId }, t.name)));
-  const makeType = h('button', { type: 'button', class: 'btn small', onclick: async () => {
+  const makeType = cell({ title: 'Ayrı “yüz yüze” görev türü oluştur', cls: 'accent', onclick: async () => {
     const base = typeName(dlgForm.querySelector('select[name=typeId]')?.value) || 'Görev';
     const name = `${base} (yüz yüze)`;
     const existing = S().taskTypes.find((t) => t.name === name);
@@ -438,19 +565,17 @@ function altBox(r) {
     if (!existing) await update((st) => ({ ...st, taskTypes: [...st.taskTypes, { id, name }] }), `"${name}" görev türü eklendi`);
     if (![...typeSel.options].some((o) => o.value === id)) typeSel.append(h('option', { value: id }, name));
     typeSel.value = id;
-  } }, '+ Ayrı “yüz yüze” görev türü oluştur');
-  const inner = h('div', { class: 'form-grid', hidden: !(r.altEvery > 1) },
-    h('div', { class: 'row' }, h('span', {}, 'Her'), h('input', { name: 'altEvery', type: 'number', min: '2', max: '12', value: String(r.altEvery > 1 ? r.altEvery : 3), style: 'width:70px' }), h('span', {}, '. seferde şu görev verilsin:')),
-    typeSel,
+  } });
+  const hidden = !(r.altEvery > 1);
+  const inner = [
+    fieldCell('Her kaçıncı', h('input', { name: 'altEvery', type: 'number', min: '2', max: '12', value: String(r.altEvery > 1 ? r.altEvery : 3), style: 'text-align:right' })),
+    fieldCell('Görev', typeSel),
     makeType,
-    h('small', { class: 'muted' }, 'Ayrı görev türü seçilirse onun sırası da ayrı döner; böylece kütüphaneye gitme işi de ekipte adil dağılır.'),
-    h('input', { name: 'altNote', maxlength: '80', value: r.altNote || '', placeholder: 'ör. Yüz yüze: kütüphaneye gidilecek' }),
-  );
-  return h('fieldset', { class: 'leave-box' },
-    h('legend', {}, 'Dönüşümlü görev'),
-    h('label', { class: 'lock' }, on, 'Belirli aralıklarla farklı görev ver (ör. her 3. ay yüz yüze)'),
-    inner,
-  );
+    fieldCell('Not', h('input', { name: 'altNote', maxlength: '80', value: r.altNote || '', placeholder: 'Yüz yüze: kütüphaneye gidilecek' })),
+  ];
+  inner.forEach((el) => { el.hidden = hidden; });
+  return section('Dönüşümlü görev', [h('label', { class: 'cell' }, h('span', { class: 'cell-body' }, h('span', { class: 'cell-title wrap' }, 'Belirli aralıklarla farklı görev ver')), h('span', { class: 'switch-ios' }, on)), inner],
+    { foot: 'Ör. her 3. ay yüz yüze. Ayrı görev türü seçilirse onun sırası da ayrı döner; kütüphaneye gitme işi de adil dağılır.' });
 }
 
 function editRecurring(r) {
@@ -461,31 +586,32 @@ function editRecurring(r) {
   r = r ?? { typeId: kitap?.id ?? s.taskTypes[0]?.id, seniorityId: s.seniorities[s.seniorities.length - 1]?.id, every: 1, unit: 'month', nextDate: '', leadDays: 3, note: 'İnternetten uzatma', active: true,
     altEvery: 3, altTypeId: yuzyuze?.id || '', altNote: 'Yüz yüze: kütüphaneye gidilecek', skipWeekends: true };
   const sel = (name, items, val) => h('select', { name }, items.map((x) => h('option', { value: x.id, selected: x.id === val }, x.name)));
-  const field = (label, el, help) => h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), el, help ? h('small', { class: 'muted' }, help) : null);
-  const body = h('div', { class: 'form-grid' },
-    field('Görev', sel('typeId', s.taskTypes, r.typeId)),
-    field('Hangi kıdeme', sel('seniorityId', s.seniorities, r.seniorityId), 'Görev bu kıdemde sırası gelen kişiye verilir.'),
-    h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Ne sıklıkla'),
-      h('div', { class: 'row' },
-        h('input', { name: 'every', type: 'number', min: '1', max: '24', required: true, value: String(r.every), style: 'width:80px' }),
-        h('select', { name: 'unit', onchange: (e) => { const lead = dlgForm.querySelector('input[name=leadDays]'); if (e.target.value === 'day' && lead && Number(lead.value) > 0) lead.value = '0'; } },
-          h('option', { value: 'day', selected: r.unit === 'day' }, 'günde bir'),
-          h('option', { value: 'week', selected: r.unit === 'week' }, 'haftada bir'),
-          h('option', { value: 'month', selected: !r.unit || r.unit === 'month' }, 'ayda bir')),
-      ),
-      h('label', { class: 'lock', style: 'margin-top:6px' }, h('input', { type: 'checkbox', name: 'skipWeekends', checked: !!r.skipWeekends }), 'Hafta sonları verme (cumartesi/pazar atlanır)')),
-    field('Sıradaki tarih (son gün)', h('input', { name: 'nextDate', type: 'date', required: true, value: r.nextDate }), 'Örn. kütüphaneye gidilmesi gereken gün.'),
-    field('Kaç gün önce verilsin', h('input', { name: 'leadDays', type: 'number', min: '0', max: '60', required: true, value: String(r.leadDays) }), 'Günlük görevlerde 0 (o gün verilir) önerilir.'),
-    field('Not (isteğe bağlı)', h('input', { name: 'note', maxlength: '80', value: r.note || '', placeholder: 'ör. İnternetten uzatma' })),
+  const num = (name, min, max, val) => h('input', { name, type: 'number', min, max, required: true, value: String(val), style: 'text-align:right' });
+  const body = [
+    section(null, [fieldCell('Görev', sel('typeId', s.taskTypes, r.typeId)), fieldCell('Kıdem', sel('seniorityId', s.seniorities, r.seniorityId))],
+      { foot: 'Görev bu kıdemde sırası gelen kişiye verilir.' }),
+    section('Sıklık', [
+      fieldCell('Her', num('every', '1', '24', r.every)),
+      fieldCell('Birim', h('select', { name: 'unit', onchange: (e) => { const lead = dlgForm.querySelector('input[name=leadDays]'); if (e.target.value === 'day' && lead && Number(lead.value) > 0) lead.value = '0'; } },
+        h('option', { value: 'day', selected: r.unit === 'day' }, 'günde bir'),
+        h('option', { value: 'week', selected: r.unit === 'week' }, 'haftada bir'),
+        h('option', { value: 'month', selected: !r.unit || r.unit === 'month' }, 'ayda bir'))),
+      h('label', { class: 'cell' }, h('span', { class: 'cell-body' }, h('span', { class: 'cell-title' }, 'Hafta sonları verme')), toggle({ name: 'skipWeekends', checked: !!r.skipWeekends })),
+    ]),
+    section('Tarih', [
+      fieldCell('Son gün', h('input', { name: 'nextDate', type: 'date', required: true, value: r.nextDate })),
+      fieldCell('Kaç gün önce', num('leadDays', '0', '60', r.leadDays)),
+    ], { foot: 'Son gün ör. kütüphaneye gidilmesi gereken gün. Günlük görevlerde 0 (o gün verilir) önerilir.' }),
+    section(null, fieldCell('Not', h('input', { name: 'note', maxlength: '80', value: r.note || '', placeholder: 'İnternetten uzatma' }))),
     altBox(r),
-    !isNew ? h('label', { class: 'lock' }, h('input', { type: 'checkbox', name: 'active', checked: r.active !== false }), 'Etkin') : null,
-  );
-  openDialog(isNew ? 'Tekrarlayan görev ekle' : 'Tekrarlayan görevi düzenle', body, {
-    extra: !isNew ? [h('button', { type: 'button', class: 'btn danger-ghost', onclick: async () => {
-      dlg.close();
+    !isNew ? section(null, h('label', { class: 'cell' }, h('span', { class: 'cell-body' }, h('span', { class: 'cell-title' }, 'Etkin')), toggle({ name: 'active', checked: r.active !== false }))) : null,
+  ];
+  openDialog(isNew ? 'Yeni otomatik görev' : 'Otomatik görev', body, {
+    extra: !isNew ? [bigBtn('Sil', async () => {
       if (!(await askConfirm('Bu tekrarlayan görev silinsin mi? Daha önce verilen görevler kalır.', 'Sil'))) return;
-      update((st) => ({ ...st, recurring: (st.recurring || []).filter((x) => x.id !== r.id) }), 'Silindi');
-    } }, 'Sil')] : [],
+      await update((st) => ({ ...st, recurring: (st.recurring || []).filter((x) => x.id !== r.id) }), 'Silindi');
+      openRecurringList();
+    }, 'danger')] : [],
     onSubmit: async (fd) => {
       const altOn = fd.get('altOn') === 'on';
       const item = {
@@ -507,84 +633,69 @@ function editRecurring(r) {
       };
       await update((st) => ({ ...st, recurring: isNew ? [...(st.recurring || []), item] : (st.recurring || []).map((x) => (x.id === item.id ? item : x)) }), 'Kaydedildi');
       setTimeout(checkRecurring, 300);
+      openRecurringList();
+      return false;
     },
   });
 }
 
-function recurringBlock() {
+function openRecurringList() {
   const list = S().recurring || [];
-  return h('div', { class: 'settings-block' },
-    h('h2', {}, '🔁 Tekrarlayan görevler'),
-    h('p', { class: 'muted small' }, 'Belirli aralıklarla yapılan işler (ör. 3 ayda bir kütüphanede kitap uzatma). Tarih yaklaşınca görev sıradaki kişiye kendiliğinden verilir.'),
-    list.length ? h('ul', { class: 'recur-list' }, list.map((r) => h('li', {},
-      h('div', { class: 'recur-main' },
-        h('strong', {}, `${typeName(r.typeId)} · ${senName(r.seniorityId)}`, r.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'Kapalı') : null),
-        h('span', { class: 'muted small' }, `${recurLabel(r)} · sıradaki: ${fmtDay(r.nextDate)} (${r.leadDays} gün önce verilir)`),
-      ),
-      h('button', { class: 'icon-btn', 'aria-label': 'Düzenle', onclick: () => editRecurring(r) }, '✎'),
-    ))) : null,
-    h('button', { class: 'btn', onclick: () => editRecurring() }, '+ Tekrarlayan görev ekle'),
-  );
+  openDialog('Otomatik görevler', [
+    section(null, [
+      list.map((r) => cell({
+        icon: 'repeat', tile: r.active === false ? 'gray' : '',
+        title: `${typeName(r.typeId)} · ${senName(r.seniorityId)}`,
+        sub: r.active === false ? 'Kapalı' : `${recurLabel(r)} · sıradaki ${fmtDay(r.nextDate)}`,
+        chev: true, onclick: () => editRecurring(r),
+      })),
+      cell({ icon: 'plus', title: 'Otomatik görev ekle', cls: 'accent', onclick: () => editRecurring() }),
+    ], { foot: 'Belirli aralıklarla yapılan işler (ör. 3 ayda bir kitap uzatma). Tarih yaklaşınca görev sıradaki kişiye kendiliğinden verilir.' }),
+  ], { cancelText: 'Bitti' });
 }
 
-function nextTable() {
-  const s = S();
-  const allowed = allowedSeniorities(s, mePerson()?.id);
-  const sens = s.seniorities.filter((x) => allowed.includes(x.id) && queueOf(s, x.id).length);
-  if (!sens.length) return null;
-  return h('div', { class: 'table-wrap' },
-    h('table', { class: 'next-table' },
-      h('thead', {}, h('tr', {}, h('th', {}, ''), sens.map((x) => h('th', {}, x.name)))),
-      h('tbody', {}, s.taskTypes.map((t) => h('tr', {},
-        h('th', { scope: 'row' }, t.name),
-        sens.map((x) => {
-          const n = nextPerson(s, t.id, x.id);
-          return h('td', {}, n ? h('span', { class: 'cell-who' }, avatar(n, 22), n.name) : h('span', { class: 'muted' }, '—'));
-        }),
-      ))),
-    ),
-  );
-}
-
+// --- Görev verme sayfası ---
 function chooseSeniority(type) {
   const s = S();
-  const note = h('input', { name: 'note', maxlength: '120', placeholder: 'Not (isteğe bağlı)', autocomplete: 'off' });
-  const due = h('input', { type: 'date', name: 'due', min: dayKey(), 'aria-label': 'Son gün' });
-  const quick = (label, n) => h('button', { type: 'button', class: 'chip-btn', onclick: () => { due.value = n === null ? '' : addDays(n); } }, label);
-  const dueRow = h('div', { class: 'due-row' },
-    h('span', { class: 'field-label' }, 'Son gün'),
-    h('div', { class: 'chips' }, quick('Yok', null), quick('Bugün', 0), quick('Yarın', 1), quick('3 gün', 3), quick('1 hafta', 7)),
-    due,
-  );
+  let due = null;
+  const dueLabel = () => (due === null ? 'Yok' : due === dayKey() ? 'Bugün' : due === addDays(1) ? 'Yarın' : fmtDay(due));
+  const dueDetail = h('span', {}, dueLabel());
+  const dateInput = h('input', { type: 'date', class: 'chip', min: dayKey(), 'aria-label': 'Tarih seç', onchange: () => setDue(dateInput.value || null) });
+  const quick = [['Yok', null], ['Bugün', 0], ['Yarın', 1], ['3 gün', 3], ['1 hafta', 7]];
+  const chipBtns = quick.map(([label, n]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(n === null), onclick: () => setDue(n === null ? null : addDays(n)) }, label));
+  const chips = h('div', { class: 'chips', hidden: true }, chipBtns, dateInput);
+  function setDue(v) {
+    due = v;
+    dueDetail.textContent = dueLabel();
+    chipBtns.forEach((b, i) => b.setAttribute('aria-pressed', String((quick[i][1] === null ? null : addDays(quick[i][1])) === due)));
+  }
+  const note = h('input', { name: 'note', maxlength: '120', placeholder: 'İsteğe bağlı', autocomplete: 'off' });
   const allowed = allowedSeniorities(s, mePerson()?.id);
-  const list = h('div', { class: 'sen-list' },
-    s.seniorities.map((x) => {
-      const next = nextPerson(s, type.id, x.id);
-      const ok = allowed.includes(x.id);
-      return h('button', {
-        type: 'button',
-        class: 'sen-btn',
-        disabled: !next || !ok,
-        onclick: () => give(type, x, note.value.trim(), due.value || null),
-      },
-        h('strong', {}, x.name),
-        h('span', { class: 'sen-next' }, ok && next ? avatar(next, 24) : null, !ok ? 'Üst / aynı kıdem' : next ? `Sıradaki: ${next.name}` : 'Müsait kimse yok'),
-      );
-    }),
-  );
-  openDialog(`${type.name}`, h('div', { class: 'form-grid' },
-    h('p', { class: 'muted' }, allowed.length ? 'Hangi kıdeme verilsin?' : 'Senin altında görev verebileceğin bir kıdem yok.'),
-    dueRow,
-    note,
-    h('small', { class: 'muted' }, 'Kişisel sağlık verisi (hasta adı, TC no vb.) yazmayın. Son gün ve notu doldurduktan sonra kıdemi seç.'),
-    list,
-  ));
+  const rows = s.seniorities.filter((x) => allowed.includes(x.id)).map((x) => {
+    const next = nextPerson(s, type.id, x.id);
+    return cell({
+      av: next ? avatar(next, 38) : h('span', { class: 'cell-icon gray' }, icon('user')),
+      cls: next ? '' : 'dim',
+      title: next ? next.name : x.name,
+      sub: next ? x.name : 'Müsait kimse yok',
+      trailing: next ? h('button', { type: 'button', class: 'pill-btn', onclick: () => give(type, x, note.value.trim(), due) }, 'Ver') : null,
+    });
+  });
+  openDialog(type.name, [
+    rows.length ? section('Kime verilsin?', rows) : section(null, h('div', { class: 'inline-empty' }, 'Senin altında görev verebileceğin bir kıdem yok.')),
+    section('Seçenekler', [
+      h('div', {},
+        cell({ icon: 'calendar', tile: 'red', title: 'Son gün', detail: dueDetail, chev: true, onclick: () => { chips.hidden = !chips.hidden; } }),
+        chips),
+      h('label', { class: 'cell has-icon' }, h('span', { class: 'cell-icon gray' }, icon('note')), h('span', { class: 'field-label' }, 'Not'), note),
+    ], { foot: 'Nota hasta adı, TC no gibi kişisel sağlık verisi yazma; not kilit ekranında görünebilir.' }),
+  ], { cancelText: 'Vazgeç' });
 }
 
 async function give(type, sen, note, dueDate = null) {
   const mp = mePerson();
   if (!mp) {
-    dlg.close();
+    await closeDlg();
     return openLogin();
   }
   if (!allowedSeniorities(S(), mp.id).includes(sen.id)) return toast('Yalnızca alt kıdemlere görev verebilirsin.');
@@ -593,25 +704,27 @@ async function give(type, sen, note, dueDate = null) {
     return { state: out.state, add: out.assignment };
   });
   if (!r) return;
+  navigator.vibrate?.(12);
   notify('assignment', r.add.id);
   showResult(r.add);
 }
 
 function showResult(a) {
+  const d = dueInfo(a.dueDate, dayKey(), a.status);
   const body = h('div', { class: 'result' },
-    h('div', { class: 'result-photo' }, avatar(a.personId, 96), h('span', { class: 'result-check' }, '✓')),
+    h('div', { class: 'result-photo' }, avatar(a.personId, 104), h('span', { class: 'result-check' }, icon('check', 18))),
     h('p', { class: 'result-name' }, a.personName),
-    h('p', { class: 'muted' }, `${a.typeName} · ${a.seniorityName}`),
-    a.dueDate ? h('p', {}, dueBadge(a)) : null,
-    a.skipped?.length ? h('p', { class: 'muted small' }, `Aktarıldı: ${a.skipped.map((x) => x.personName).join(', ')} yerine`) : null,
+    h('p', { class: 'result-sub' }, `${a.typeName} · ${a.seniorityName}`),
+    d ? h('p', { class: `result-due tone-${d.tone}` }, d.text) : null,
+    a.skipped?.length ? h('p', { class: 'result-sub small' }, `${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
   );
   openDialog(null, body, {
-    cancelText: 'Tamam',
-    cancelPrimary: true,
+    cancelText: null,
     extra: [
-      isAdmin() && h('button', { type: 'button', class: 'btn danger-ghost', onclick: () => doCancel(a, true) }, 'Geri al'),
-      canPassOn(a) && h('button', { type: 'button', class: 'btn', onclick: () => doPassOn(a, true) }, 'Sonrakine aktar'),
-    ].filter(Boolean),
+      bigBtn('Tamam', closeDlg, 'primary'),
+      canPassOn(a) && bigBtn('Sonrakine aktar', () => doPassOn(a, true)),
+      isAdmin() && bigBtn('Geri al', () => doCancel(a, true), 'danger'),
+    ],
   });
 }
 
@@ -625,8 +738,8 @@ async function doCancel(a, fromResult = false) {
     return { state: next, patch: out.patch, restored: out.restored };
   }, { assignmentId: a.id });
   if (!r) return;
-  if (dlg.open) dlg.close();
-  toast(r.restored ? `İptal edildi. Sıra yine ${a.personName}'da.` : 'İptal edildi.');
+  if (dlg.open) closeDlg();
+  toast(r.restored ? `İptal edildi. Sıra yine ${a.personName}'da.` : 'İptal edildi');
 }
 
 async function doPassOn(a, fromResult = false) {
@@ -640,7 +753,7 @@ async function doPassOn(a, fromResult = false) {
   if (!r) return;
   notify('assignment', a.id);
   if (fromResult) showResult(r.updated);
-  else toast(`Görev ${r.updated.personName} kişisine aktarıldı.`);
+  else toast(`Görev ${r.updated.personName} kişisine aktarıldı`);
 }
 
 async function toggleDone(a) {
@@ -653,7 +766,7 @@ async function toggleDone(a) {
     const next = bumpStat(state, monthKey(cur.createdAt), cur.personId, done ? 1 : -1);
     return { state: next, patch: { status: done ? 'tamamlandı' : 'aktif', completedAt: done ? Date.now() : null }, done };
   }, { assignmentId: a.id });
-  if (r) toast(r.done ? 'Tamamlandı olarak işaretlendi' : 'Yeniden açıldı');
+  if (r) toast(r.done ? 'Tamamlandı' : 'Yeniden açıldı');
 }
 
 // --- Bildirimler ---
@@ -698,25 +811,25 @@ async function removePushToken(personId) {
 }
 async function enablePush() {
   const state = pushState();
-  if (state === 'ana-ekran') return toast('iPhone\'da bildirim için önce uygulamayı ana ekrana ekleyip oradan açın.');
+  if (state === 'ana-ekran') return toast('iPhone\'da bildirim için önce uygulamayı ana ekrana ekleyip oradan aç.');
   if (state === 'desteklenmiyor') return toast('Bu tarayıcı bildirimleri desteklemiyor.');
   try {
     const perm = await Notification.requestPermission();
-    if (perm !== 'granted') return toast('Bildirim izni verilmedi. Telefon ayarlarından izin verebilirsin.');
+    if (perm !== 'granted') { toast('Bildirim izni verilmedi. Telefon ayarlarından izin verebilirsin.'); refreshOpenDialogs(); return; }
     const token = await backend.getPushToken(await swReady(), vapidKey);
     if (!token) throw new Error('Bildirim anahtarı alınamadı.');
-    if (await savePushToken(token)) toast('🔔 Bildirimler açıldı');
-    refreshOpenDialogs();
+    if (await savePushToken(token)) toast('Bildirimler açıldı');
   } catch (err) {
     toast('Bildirim açılamadı: ' + (err.message || err));
   }
+  refreshOpenDialogs();
 }
 async function disablePush() {
   const me = mePerson();
   if (!me) return;
   await removePushToken(me.id);
   await backend.deletePushToken();
-  toast('🔕 Bildirimler bu cihazda kapatıldı');
+  toast('Bildirimler bu cihazda kapatıldı');
   refreshOpenDialogs();
 }
 /** Uygulama açıldığında anahtarı tazele (değiştiyse kaydet). */
@@ -735,7 +848,8 @@ function notify(kind, id) {
   if (!notifyUrl || !id) return;
   fetch(notifyUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ team: teamId, kind, id }), keepalive: true }).catch(() => {});
 }
-function notifBlock() {
+/** Ayarlar'daki bildirim anahtarı. */
+function notifSection() {
   const st = pushState();
   if (st === 'yok') return null;
   const msg = {
@@ -745,42 +859,36 @@ function notifBlock() {
     acik: 'Sana görev verildiğinde ve yeni duyuru geldiğinde bu cihaza bildirim gelir.',
     kapali: 'Sana görev verildiğinde ve yeni duyuru geldiğinde telefonuna bildirim gelsin.',
   }[st];
-  return h('div', { class: 'notif-box' },
-    h('div', { class: 'notif-text' }, h('strong', {}, st === 'acik' ? '🔔 Bildirimler açık' : '🔕 Bildirimler kapalı'), h('span', { class: 'muted small' }, msg)),
-    st === 'kapali' ? h('button', { type: 'button', class: 'btn primary small', onclick: enablePush }, 'Aç') : null,
-    st === 'acik' ? h('button', { type: 'button', class: 'btn small', onclick: disablePush }, 'Kapat') : null,
-  );
+  const usable = st === 'acik' || st === 'kapali';
+  return section('Bildirimler', h('label', { class: 'cell has-icon' },
+    h('span', { class: 'cell-icon red' }, icon('bell')),
+    h('span', { class: 'cell-body' }, h('span', { class: 'cell-title' }, 'Bildirimler')),
+    toggle({ checked: st === 'acik', disabled: !usable, onchange: (e) => (e.target.checked ? enablePush() : disablePush()) }),
+  ), { foot: msg });
 }
 function refreshOpenDialogs() {
   render();
-  if (dlg.open && dlgForm.querySelector('.notif-box')) {
-    const box = dlgForm.querySelector('.notif-box');
-    const fresh = notifBlock();
-    if (fresh) box.replaceWith(fresh);
-  }
+  if (dlg.open && dlgForm.dataset.kind === 'account') openAccount();
 }
 
 // --- Duyuru panosu ---
 let annOpen = false;
 let annNamesFor = null; // okuyan listesi açık duyuru
-function announcementCard() {
+function announcementCell() {
   const s = S();
   const me = mePerson();
   const list = s.announcements || [];
   if (!list.length) {
-    return me ? h('button', { class: 'btn ann-empty', onclick: openAnnouncements }, '📢 Duyuru yayınla') : null;
+    return me ? section('Duyuru', cell({ icon: 'megaphone', tile: 'orange', title: 'Duyuru yaz', cls: 'accent', chev: true, onclick: openAnnouncements })) : null;
   }
   const a = list[0];
   const unread = unreadCount(s, me?.id);
-  return h('button', { class: `ann-card ${unread ? 'unread' : ''}`, onclick: openAnnouncements },
-    h('div', { class: 'ann-head' },
-      h('span', { class: 'ann-title' }, '📢 Duyuru'),
-      unread ? h('span', { class: 'ann-new' }, unread === 1 ? 'Yeni' : `${unread} yeni`) : null,
-      h('span', { class: 'muted small ann-all' }, list.length > 1 ? `Tümü (${list.length}) ›` : 'Aç ›'),
-    ),
-    h('p', { class: 'ann-text clamp' }, a.text),
-    h('span', { class: 'muted small' }, `${a.by} · ${fmtDate(a.createdAt)}`),
-  );
+  return section('Duyuru', cell({
+    icon: 'megaphone', tile: 'orange',
+    title: a.text, sub: `${a.by} · ${fmtWhen(a.createdAt)}`,
+    trailing: unread ? h('span', { class: 'unread-dot', 'aria-label': `${unread} okunmamış` }) : null,
+    chev: true, onclick: openAnnouncements,
+  }), { action: list.length > 1 ? h('button', { class: 'text-btn', onclick: openAnnouncements }, `Tümü (${list.length})`) : null });
 }
 
 function openAnnouncements() {
@@ -807,22 +915,21 @@ function renderAnnouncements() {
     const readIds = Object.keys(a.readBy || {}).filter((id) => personById(id));
     const showNames = annNamesFor === a.id;
     const unreadPeople = s.people.filter((p) => !a.readBy?.[p.id]);
-    return h('li', { class: 'ann-item' },
-      h('p', { class: 'ann-text' }, a.text),
-      h('span', { class: 'muted small' }, `${a.by} · ${fmtDate(a.createdAt)}`),
-      h('div', { class: 'react-bar' },
-        groupReactions(a.reactions).map((g) => h('button', { type: 'button', class: `react-chip ${me && g.ids.includes(me.id) ? 'mine' : ''}`, onclick: () => reactAnn(a, g.emoji) },
-          h('span', { class: 'react-emoji' }, g.emoji), h('span', { class: 'react-avs' }, g.ids.slice(0, 3).map((id) => avatar(id, 16))), g.ids.length > 3 ? h('span', { class: 'react-n' }, `+${g.ids.length - 3}`) : null)),
-        h('button', { type: 'button', class: 'react-add', 'aria-label': 'Emoji ile tepki ver', onclick: (e) => { const pk = e.currentTarget.closest('.ann-item').querySelector('.react-picker'); pk.hidden = !pk.hidden; } }, '☺︎+'),
-        h('button', { type: 'button', class: 'react-add', onclick: () => { annNamesFor = showNames ? null : a.id; renderAnnouncements(); } }, `👁 ${readIds.length}/${total}`),
-      ),
-      h('div', { class: 'react-picker', hidden: true }, REACTIONS.map((e) => h('button', { type: 'button', class: `react-pick ${me && a.reactions?.[me.id] === e ? 'mine' : ''}`, onclick: () => reactAnn(a, e) }, e))),
-      showNames ? h('div', { class: 'ann-reads small' },
-        h('div', {}, h('strong', {}, 'Okudu: '), readIds.map(nameOf).join(', ') || '—'),
-        h('div', { class: 'muted' }, h('strong', {}, 'Henüz okumadı: '), unreadPeople.map((p) => p.name).join(', ') || '—'),
-      ) : null,
-      isAdmin() || (me && a.byId === me.id) ? h('button', { type: 'button', class: 'btn small danger-ghost', style: 'align-self:flex-start', onclick: async () => {
-        dlg.close();
+    const canDelete = isAdmin() || (me && a.byId === me.id);
+    return h('div', { class: 'group', style: 'margin-top:12px' },
+      h('div', { class: 'cell' }, h('span', { class: 'cell-body' },
+        h('span', { class: 'cell-title wrap', style: 'white-space:pre-wrap;overflow-wrap:anywhere' }, a.text),
+        h('span', { class: 'cell-sub' }, `${a.by} · ${fmtWhen(a.createdAt)}`),
+        h('span', { class: 'reacts' },
+          groupReactions(a.reactions).map((g) => h('button', { type: 'button', class: `react-chip ${me && g.ids.includes(me.id) ? 'mine' : ''}`, title: g.ids.map(nameOf).join(', '), onclick: () => reactAnn(a, g.emoji) },
+            h('span', { class: 'e' }, g.emoji), String(g.ids.length))),
+          me ? h('button', { type: 'button', class: 'react-chip', 'aria-label': 'Tepki ver', onclick: () => actionSheet('Tepki ver', [], { emojis: emojiRow((e) => reactAnn(a, e), a.reactions?.[me.id]) }) }, icon('smile', 16)) : null,
+          h('button', { type: 'button', class: 'react-chip', onclick: () => { annNamesFor = showNames ? null : a.id; renderAnnouncements(); } }, `Okuyan ${readIds.length}/${total}`),
+        ),
+        showNames ? h('span', { class: 'cell-sub wrap', style: 'margin-top:6px' }, `Okudu: ${readIds.map(nameOf).join(', ') || '—'}`) : null,
+        showNames ? h('span', { class: 'cell-sub wrap' }, `Henüz okumadı: ${unreadPeople.map((p) => p.name).join(', ') || '—'}`) : null,
+      )),
+      canDelete ? cell({ title: 'Duyuruyu sil', cls: 'danger', onclick: async () => {
         if (!(await askConfirm('Bu duyuru silinsin mi?', 'Sil'))) return;
         const r = await run((st) => {
           const cur = (st.announcements || []).find((x) => x.id === a.id);
@@ -830,19 +937,18 @@ function renderAnnouncements() {
           if (cur && !(isAdmin() || cur.byId === meNow?.id)) throw new Error('Yalnızca kendi duyurunu silebilirsin.');
           return { state: removeAnnouncement(st, a.id) };
         });
-        if (r) toast('Duyuru silindi');
-      } }, 'Sil') : null,
+        if (r) { toast('Duyuru silindi'); renderAnnouncements(); }
+      } }) : null,
     );
   });
-  const composer = me ? h('div', { class: 'ann-compose' },
-    h('textarea', { name: 'ann', rows: '3', maxlength: String(MAX_ANNOUNCEMENT_LEN), placeholder: 'Ekibe duyuru yaz… (hasta bilgisi yazmayın)' }),
-    h('button', { type: 'button', class: 'btn primary', onclick: postAnnouncement }, 'Yayınla'),
-  ) : null;
-  openDialog('📢 Duyurular', h('div', { class: 'form-grid' },
+  const composer = me ? section('Yeni duyuru', [
+    h('div', { class: 'cell' }, h('textarea', { name: 'ann', rows: '3', maxlength: String(MAX_ANNOUNCEMENT_LEN), placeholder: 'Ekibe duyuru yaz' })),
+    h('div', { class: 'cell', style: 'justify-content:flex-end' }, h('button', { type: 'button', class: 'pill-btn', onclick: postAnnouncement }, 'Yayınla')),
+  ], { foot: 'Hasta bilgisi yazma. Herkes duyuru yazabilir; kendi duyurunu silebilirsin, başasistan tüm duyuruları silebilir.' }) : null;
+  openDialog('Duyurular', [
     composer,
-    items.length ? h('ul', { class: 'ann-list' }, items) : h('p', { class: 'muted' }, 'Henüz duyuru yok.'),
-    h('small', { class: 'muted' }, 'Herkes duyuru yazabilir; duyurulara yalnızca emojiyle tepki verilir. Kendi duyurunu silebilirsin, başasistan tüm duyuruları silebilir.'),
-  ), { cancelText: 'Kapat' });
+    items.length ? [h('h2', { class: 'group-title' }, 'Duyurular'), items] : h('p', { class: 'group-foot', style: 'text-align:center;margin-top:24px' }, 'Henüz duyuru yok.'),
+  ], { cancelText: 'Kapat', kind: 'ann' });
   const ta = dlgForm.querySelector('textarea[name=ann]');
   if (ta && prevText) ta.value = prevText;
 }
@@ -888,128 +994,169 @@ function openProfile(personId) {
   const rate = mine.length ? Math.round((done / mine.length) * 100) : null;
   const now = leaveOn(p);
   const nextLeave = cleanLeaves(p.leaves || []).find((l) => l.from > dayKey());
-  const stat = (v, l, cls = '') => h('div', { class: `pstat ${cls}` }, h('strong', {}, String(v)), h('span', {}, l));
-  const body = h('div', { class: 'profile' },
-    h('div', { class: 'profile-head' },
+  const stat = (v, l, cls = '') => h('div', { class: `stat ${cls}` }, h('strong', {}, String(v)), h('span', {}, l));
+  const leaveText = now ? `İzinde · ${fmtDay(now.to)}'e kadar` : p.active === false ? 'İzinli' : nextLeave ? `Planlı izin: ${fmtDay(nextLeave.from)} – ${fmtDay(nextLeave.to)}` : null;
+  openDialog(null, [
+    h('div', { class: 'profile-hero' },
       avatar(p, 96),
-      h('div', {},
-        h('h3', {}, p.name),
-        h('span', { class: 'muted' }, senName(p.seniorityId)),
-        cups.length ? h('span', { class: 'cups', title: cups.map(monthLabel).join(', ') }, '🏆'.repeat(Math.min(cups.length, 5)), ` ${cups.length} kez ayın elemanı`) : null,
-        now ? h('span', { class: 'leave-tag' }, `🌴 İzinde · ${fmtDay(now.to)}'e kadar`)
-          : p.active === false ? h('span', { class: 'leave-tag' }, '🌴 İzinli')
-          : nextLeave ? h('span', { class: 'muted small' }, `🌴 Planlı izin: ${fmtDay(nextLeave.from)} – ${fmtDay(nextLeave.to)}`) : null,
-      ),
+      h('h3', {}, p.name),
+      h('span', { class: 'muted' }, senName(p.seniorityId)),
+      cups.length ? h('span', { class: 'cups', title: cups.map(monthLabel).join(', ') }, icon('trophy', 18), `${cups.length} kez ayın elemanı`) : null,
+      leaveText ? h('span', { class: 'muted small' }, leaveText) : null,
     ),
-    h('div', { class: 'pstats' },
-      stat(thisMonth.length, 'bu ay aldığı'),
-      stat(doneMonth, 'bu ay tamamladığı'),
-      stat(rate === null ? '—' : `%${rate}`, 'tamamlama oranı'),
+    h('h2', { class: 'group-title' }, 'Bu ay'),
+    h('div', { class: 'stats' },
+      stat(thisMonth.length, 'aldığı'),
+      stat(doneMonth, 'tamamladığı'),
+      stat(given, 'verdiği'),
       stat(open.length, 'açık görev', open.length ? 'warn' : ''),
       stat(late, 'geciken', late ? 'bad' : ''),
-      stat(given, 'bu ay verdiği'),
+      stat(rate === null ? '—' : `%${rate}`, 'tamamlama'),
     ),
-    cups.length ? h('p', { class: 'muted small' }, `🏆 ${cups.map(monthLabel).join(', ')}`) : null,
-    mine.length ? h('h3', { class: 'p-sub' }, 'Son görevleri') : null,
-    mine.length ? h('ul', { class: 'asg-list' }, mine.slice(0, 5).map((a) => assignmentItem(a, { compact: true }))) : h('p', { class: 'muted' }, 'Henüz görevi yok.'),
-  );
-  openDialog(null, body, {
+    mine.length ? section('Son görevleri', mine.slice(0, 5).map((a) => taskRow(a, { mode: 'compact', noTap: true }))) : null,
+  ], {
     cancelText: 'Kapat',
     extra: [
-      isAdmin() && h('button', { type: 'button', class: 'btn', onclick: () => editPerson(p) }, 'Düzenle'),
-      mePerson()?.id === p.id && h('button', { type: 'button', class: 'btn', onclick: openAccount }, 'Hesabım'),
-    ].filter(Boolean),
+      isAdmin() && bigBtn('Düzenle', () => editPerson(p)),
+      mePerson()?.id === p.id && bigBtn('Hesabım', openAccount),
+    ],
   });
 }
 
-// --- Emoji tepkileri ---
-let reactOpenFor = null; // tepki seçicisi açık olan görev
+// --- Görev satırları ---
 async function react(a, emoji) {
   const me = mePerson();
   if (!me) return openLogin();
-  reactOpenFor = null;
   await run((state, cur) => {
     if (!cur) throw new Error('Kayıt bulunamadı.');
     if (cur.status === 'iptal') throw new Error('İptal edilmiş göreve tepki verilemez.');
     return { patch: { reactions: setReaction(cur.reactions, me.id, emoji) } };
   }, { assignmentId: a.id });
 }
-function reactionBar(a) {
+function emojiRow(onPick, mine) {
+  return h('div', { class: 'as-emojis' }, REACTIONS.map((e) => h('button', { type: 'button', class: mine === e ? 'mine' : '', 'aria-label': `${e} tepkisi`, onclick: async () => { await closeAct(); onPick(e); } }, e)));
+}
+function reactChips(a) {
   if (a.status === 'iptal') return null;
-  const me = mePerson();
   const groups = groupReactions(a.reactions);
+  if (!groups.length) return null;
+  const me = mePerson();
   const nameOf = (id) => personById(id)?.name ?? 'Eski ekip üyesi';
-  const chips = groups.map((g) => h('button', {
+  return h('span', { class: 'reacts' }, groups.map((g) => h('button', {
+    type: 'button',
     class: `react-chip ${me && g.ids.includes(me.id) ? 'mine' : ''}`,
     title: g.ids.map(nameOf).join(', '),
     'aria-label': `${g.emoji} ${g.ids.length}: ${g.ids.map(nameOf).join(', ')}`,
     onclick: () => react(a, g.emoji),
-  }, h('span', { class: 'react-emoji' }, g.emoji), h('span', { class: 'react-avs' }, g.ids.slice(0, 3).map((id) => avatar(id, 16))), g.ids.length > 3 ? h('span', { class: 'react-n' }, `+${g.ids.length - 3}`) : null));
-  const open = reactOpenFor === a.id;
-  const toggle = h('button', { class: `react-add ${open ? 'open' : ''}`, 'aria-label': 'Emoji ile tepki ver', 'aria-expanded': String(open), onclick: () => { reactOpenFor = open ? null : a.id; render(); } }, open ? '✕' : '☺︎+');
-  const who = groups.length ? h('span', { class: 'react-who muted' }, groups.map((g) => `${g.emoji} ${g.ids.map((id) => nameOf(id).split(' ')[0]).join(', ')}`).join(' · ')) : null;
-  return h('div', { class: 'react-wrap' },
-    h('div', { class: 'react-bar' }, chips, toggle),
-    open ? h('div', { class: 'react-picker', role: 'group', 'aria-label': 'Emoji seç' },
-      REACTIONS.map((e) => h('button', { class: `react-pick ${me && a.reactions?.[me.id] === e ? 'mine' : ''}`, onclick: () => react(a, e) }, e))) : null,
-    who,
-  );
+  }, h('span', { class: 'e' }, g.emoji), g.ids.map((id) => firstName(nameOf(id))).slice(0, 2).join(', ') + (g.ids.length > 2 ? ` +${g.ids.length - 2}` : ''))));
 }
-
-function assignmentItem(a, { compact = false } = {}) {
-  const status = { aktif: 'Verildi', tamamlandı: 'Tamamlandı', iptal: 'İptal' }[a.status] ?? a.status;
-  const late = a.status === 'aktif' && a.dueDate && a.dueDate < dayKey();
-  return h('li', { class: `asg ${a.status === 'iptal' ? 'cancelled' : ''} ${late ? 'late' : ''}` },
-    h('div', { class: 'asg-main' },
-      h('div', { class: 'asg-title' }, h('button', { class: 'asg-who linkish', onclick: () => openProfile(a.personId), 'aria-label': `${a.personName} profili` }, avatar(a.personId, 28), h('strong', {}, a.personName)), h('span', { class: `badge s-${a.status}` }, status)),
-      h('span', {}, `${a.typeName} · ${a.seniorityName}`),
-      h('span', { class: 'muted small' }, `${fmtDate(a.createdAt)}${a.by ? ' · veren: ' + a.by : ''}`),
-      a.skipped?.length ? h('span', { class: 'muted small' }, `↪ ${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null,
-      dueBadge(a),
-      a.note ? h('span', { class: 'note' }, a.note) : null,
-    ),
-    reactionBar(a),
-    !compact && a.status !== 'iptal' && (canToggleDone(a) || canPassOn(a) || isAdmin()) && h('div', { class: 'asg-actions' },
-      canToggleDone(a) && h('button', { class: 'btn small', onclick: () => toggleDone(a) }, a.status === 'tamamlandı' ? 'Geri aç' : 'Tamamlandı'),
-      a.status === 'aktif' && canPassOn(a) && h('button', { class: 'btn small', onclick: () => doPassOn(a) }, 'Aktar'),
-      isAdmin() && h('button', { class: 'btn small danger-ghost', onclick: () => doCancel(a) }, 'İptal'),
-    ),
-  );
+/** Görevin ⋯ menüsü. */
+function taskActions(a) {
+  const me = mePerson();
+  const open = a.status !== 'iptal';
+  actionSheet(`${a.typeName} · ${a.personName}`, [
+    open && canToggleDone(a) && { label: a.status === 'tamamlandı' ? 'Yeniden aç' : 'Tamamlandı olarak işaretle', onSelect: () => toggleDone(a) },
+    a.status === 'aktif' && canPassOn(a) && { label: 'Sonrakine aktar', onSelect: () => doPassOn(a) },
+    { label: 'Profili gör', onSelect: () => openProfile(a.personId) },
+    open && isAdmin() && { label: 'Görevi iptal et', danger: true, onSelect: () => doCancel(a) },
+  ], { emojis: open && me ? emojiRow((e) => react(a, e), a.reactions?.[me.id]) : null });
+}
+/** Tamamlama yuvarlağı: önce animasyon, sonra kayıt. */
+const toggling = new Set();
+function checkBtn(a) {
+  const on = a.status === 'tamamlandı';
+  const btn = h('button', {
+    type: 'button', class: `check ${on ? 'on' : ''}`,
+    'aria-label': on ? 'Yeniden aç' : 'Tamamlandı olarak işaretle', 'aria-pressed': String(on),
+    onclick: () => {
+      if (toggling.has(a.id)) return;
+      toggling.add(a.id);
+      btn.classList.add('anim');
+      btn.classList.toggle('on');
+      navigator.vibrate?.(8);
+      if (!on) btn.closest('.cell')?.classList.add('leaving');
+      setTimeout(async () => { await toggleDone(a); toggling.delete(a.id); render(); }, reducedMotion() ? 0 : 480);
+    },
+  }, icon('check', 15));
+  return btn;
+}
+/**
+ * mode: 'mine' (bana verilen), 'given' (verdiğim), 'history', 'compact' (özet; satır dokununca menü).
+ */
+function taskRow(a, { mode = 'history', noTap = false } = {}) {
+  const cancelled = a.status === 'iptal';
+  const done = a.status === 'tamamlandı';
+  // Geçmiş zaten gün gün gruplu: orada yalnızca saat yazılır.
+  const when = mode === 'history' ? fmtTime(a.createdAt) : fmtWhen(a.createdAt);
+  const who = mode === 'mine' ? `${a.by || 'Bilinmiyor'} verdi · ${when}` : `${a.typeName} · ${when}`;
+  const title = mode === 'mine' ? a.typeName : a.personName;
+  const skipped = a.skipped?.length ? h('span', { class: 'cell-sub' }, `${a.skipped.map((x) => x.personName).join(', ')} yerine aktarıldı`) : null;
+  const extra = [
+    !done && !cancelled ? dueEl(a) : null,
+    mode !== 'compact' ? skipped : null,
+    a.note && mode !== 'compact' ? h('span', { class: 'note-text' }, a.note) : null,
+    mode !== 'compact' ? reactChips(a) : null,
+  ];
+  const status = cancelled ? h('span', { class: 'status-tag' }, 'İptal')
+    : done && (mode === 'compact' || !canToggleDone(a)) ? h('span', { class: 'status-tag done', 'aria-label': 'Tamamlandı' }, icon('check', 18)) : null;
+  if (mode === 'compact') {
+    return cell({
+      av: avatar(a.personId, 36), title, sub: who,
+      extra, trailing: status,
+      titleCls: cancelled ? 'done-title' : '',
+      onclick: noTap ? null : () => taskActions(a),
+    });
+  }
+  const showCheck = !cancelled && canToggleDone(a);
+  return cell({
+    before: showCheck ? checkBtn(a) : null,
+    av: mode === 'mine' ? h('span', { class: 'cell-icon' }, icon(typeIcon(a.typeName))) : avatar(a.personId, 34),
+    title, sub: who,
+    titleCls: cancelled || (done && mode === 'mine') ? 'done-title' : '',
+    extra, cls: showCheck ? 'has-check' : '',
+    trailing: h('span', { style: 'display:flex;align-items:center;gap:6px' }, status,
+      h('button', { type: 'button', class: 'text-btn', 'aria-label': 'Diğer işlemler', style: 'padding:6px;color:var(--text-2)', onclick: () => taskActions(a) }, icon('more', 22))),
+  });
 }
 
 // --- Görevlerim ---
 function mineView() {
   const me = mePerson();
+  if (!me) return [pageHead('Görevlerim'), emptyState('users', 'Henüz ekip yok', 'Önce Ekip sekmesinden asistanları ekle; sonra herkes kendi görevlerini burada görür.', 'Ekibe git', () => switchTab('team'))];
   const byDue = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || a.createdAt - b.createdAt;
   const open = data.assignments.filter((a) => a.status === 'aktif' && a.personId === me.id).sort(byDue);
   const done = data.assignments.filter((a) => a.status === 'tamamlandı' && a.personId === me.id).slice(0, 10);
   const given = data.assignments.filter((a) => a.status === 'aktif' && a.byId === me.id).sort(byDue);
-  const late = open.filter((a) => a.dueDate && a.dueDate < dayKey()).length;
-  return h('section', {},
-    h('h2', { style: 'margin-top:0' }, `Bana verilen açık görevler (${open.length})`),
-    late ? h('p', { class: 'late-note' }, `⚠️ ${late} görevin son günü geçti.`) : null,
-    open.length ? h('ul', { class: 'asg-list' }, open.map((a) => assignmentItem(a))) : h('p', { class: 'muted' }, '🎉 Açık görevin yok.'),
-    h('p', { class: 'hint' }, 'Bitirdiğin görevi "Tamamlandı" olarak işaretle; ayın elemanı sayımına eklenir.'),
-    given.length ? h('h2', {}, `Verdiğim, henüz bitmemiş görevler (${given.length})`) : null,
-    given.length ? h('ul', { class: 'asg-list' }, given.map((a) => assignmentItem(a))) : null,
-    done.length ? h('h2', {}, 'Son tamamladıklarım') : null,
-    done.length ? h('ul', { class: 'asg-list' }, done.map((a) => assignmentItem(a))) : null,
-  );
+  return [
+    pageHead('Görevlerim'),
+    open.length
+      ? section(`Açık · ${open.length}`, open.map((a) => taskRow(a, { mode: 'mine' })), { foot: 'Bitirdiğin görevin yuvarlağına dokun; ayın elemanı sayımına eklenir.' })
+      : [h('h2', { class: 'group-title' }, 'Açık'), h('div', { class: 'group' }, h('div', { class: 'inline-empty' }, 'Açık görevin yok. Keyfini çıkar.'))],
+    given.length ? section(`Verdiklerim · ${given.length}`, given.map((a) => taskRow(a, { mode: 'given' }))) : null,
+    done.length ? section('Tamamlanan', done.map((a) => taskRow(a, { mode: 'mine' }))) : null,
+  ];
 }
 
 // --- Geçmiş ---
 function historyView() {
   const s = S();
-  const chips = h('div', { class: 'chips' },
-    [{ id: 'all', name: 'Tümü' }, ...s.taskTypes].map((t) => h('button', {
-      class: 'chip-btn', 'aria-pressed': String(historyFilter === t.id), onclick: () => { historyFilter = t.id; render(); },
-    }, t.name)),
-  );
+  const filters = [{ id: 'all', name: 'Tümü' }, ...s.taskTypes.map((t) => ({ id: t.id, name: firstName(t.name) }))];
+  if (!filters.some((f) => f.id === historyFilter)) historyFilter = 'all';
+  const seg = h('div', { class: 'segmented', role: 'group', 'aria-label': 'Görev türü' },
+    filters.map((t) => h('button', { type: 'button', 'aria-pressed': String(historyFilter === t.id), onclick: () => { historyFilter = t.id; render(); } }, t.name)));
   const list = data.assignments.filter((a) => historyFilter === 'all' || a.typeId === historyFilter);
-  return h('section', {},
-    chips,
-    list.length ? h('ul', { class: 'asg-list' }, list.map((a) => assignmentItem(a))) : empty('Henüz görev verilmedi.'),
-  );
+  const days = [];
+  for (const a of list) {
+    const label = dayGroupLabel(a.createdAt);
+    if (days.at(-1)?.label !== label) days.push({ label, items: [] });
+    days.at(-1).items.push(a);
+  }
+  return [
+    pageHead('Geçmiş'),
+    seg,
+    days.length ? days.map((d) => section(d.label, d.items.map((a) => taskRow(a, { mode: 'history' }))))
+      : emptyState('clock', 'Henüz görev yok', 'Verilen görevler burada gün gün listelenir.'),
+  ];
 }
 
 // --- Ekip ---
@@ -1018,86 +1165,74 @@ function countsFor(personId) {
   for (const a of data.assignments) if (a.personId === personId && a.status !== 'iptal') c[a.typeId] = (c[a.typeId] || 0) + 1;
   return c;
 }
-
 function teamView() {
   const s = S();
-  const name = h('input', { name: 'pname', required: true, maxlength: '60', placeholder: 'Ad soyad', autocomplete: 'off' });
-  const lastSen = s.seniorities[s.seniorities.length - 1]?.id;
-  const sen = h('select', { name: 'psen', 'aria-label': 'Kıdem' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === lastSen }, x.name)));
-  const form = h('form', {
-    class: 'add-form',
-    onsubmit: async (e) => {
-      e.preventDefault();
-      const n = name.value.trim();
-      if (!n) return;
-      const senId = sen.value;
-      await update((st) => addPerson(st, { id: uid(), name: n, seniorityId: senId }), `${n} eklendi`);
-    },
-  }, name, sen, h('button', { class: 'btn primary' }, 'Ekle'));
-
   const manage = canManage();
-  return h('section', {},
-    manage ? h('h2', {}, 'Asistan ekle') : null,
-    manage ? form : h('p', { class: 'muted small' }, 'Ekibi yalnızca başasistan düzenleyebilir.'),
+  if (!s.people.length) {
+    return [pageHead('Ekip'), emptyState('userPlus', 'Ekibi kur', 'Asistanları kıdemleriyle ekle. Sonra başasistan giriş yapıp herkese PIN verir.', manage ? 'Asistan ekle' : null, addPersonSheet)];
+  }
+  return [
+    pageHead('Ekip'),
     s.seniorities.map((x) => {
       const q = queueOf(s, x.id);
-      return h('div', { class: 'sen-group' },
-        h('h2', {}, `${x.name} `, h('span', { class: 'muted' }, `(${q.length})`)),
-        q.length ? h('ul', { class: 'people' }, q.map((p, i) => personRow(p, i, q.length, manage))) : h('p', { class: 'muted small' }, 'Bu kıdemde kimse yok.'),
-      );
+      if (!q.length && !manage) return null;
+      return section(x.name, q.length ? q.map((p) => personCell(p, manage)) : h('div', { class: 'inline-empty' }, 'Bu kıdemde kimse yok.'),
+        { action: q.length ? h('span', { class: 'small' }, String(q.length)) : null });
     }),
-    h('p', { class: 'hint' }, 'Sıra yukarıdan aşağıya ilerler. "İzinli" işaretlenen kişi, işaret kaldırılana kadar tüm sıralarda atlanır.'),
-  );
+    manage ? section(null, cell({ icon: 'userPlus', title: 'Asistan ekle', cls: 'accent', onclick: addPersonSheet })) : null,
+    h('p', { class: 'group-foot' }, manage
+      ? 'Sıra yukarıdan aşağıya ilerler. Bir kişiyi düzenlemek, sırasını değiştirmek ya da izinli yapmak için üstüne dokun.'
+      : 'Sıra yukarıdan aşağıya ilerler. Ekibi yalnızca başasistan düzenleyebilir.'),
+  ];
 }
-
-function personRow(p, i, n, manage) {
+function personCell(p, manage) {
   const c = countsFor(p.id);
-  const summary = S().taskTypes.map((t) => c[t.id] ? `${t.name.split(' ')[0]} ${c[t.id]}` : null).filter(Boolean).join(' · ');
-  const main = h('div', { class: 'person-main' },
-    h('strong', {}, p.name, lastMonthWinnerIds().includes(p.id) ? h('span', { title: 'Geçen ayın elemanı' }, ' 🏆') : null, p.active === false ? h('span', { class: 'badge s-iptal', style: 'margin-left:6px' }, 'İzinli') : null),
-    (() => {
-      const now = leaveOn(p);
-      const next = cleanLeaves(p.leaves || []).find((l) => l.from > dayKey());
-      if (now) return h('span', { class: 'leave-tag' }, `🌴 İzinde · ${fmtDay(now.to)}'e kadar`);
-      if (next) return h('span', { class: 'muted small' }, `🌴 Planlı izin: ${fmtDay(next.from)} – ${fmtDay(next.to)}`);
-      return null;
-    })(),
-    h('span', { class: 'muted small' }, summary || 'Henüz görev yok'),
-  );
-  const who = h('button', { class: 'person-open', 'aria-label': `${p.name} profili`, onclick: () => openProfile(p.id) }, avatar(p, 36), main);
-  if (!manage) return h('li', { class: `person ${p.active === false ? 'away' : ''}` }, who);
-  return h('li', { class: `person ${p.active === false ? 'away' : ''}` },
-    who,
-    h('button', { class: `pin-btn ${p.pinHash ? 'has' : ''}`, title: p.pinHash ? 'PIN var · yenisini ata' : 'PIN yok · ata', onclick: () => setPinFor(p) }, p.pinHash ? '🔑' : '🔑?'),
-    h('label', { class: 'switch', title: 'İzinli / müsait değil' },
-      h('input', { type: 'checkbox', checked: p.active === false, onchange: (e) => {
-        const away = e.target.checked;
-        update((st) => ({ ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, active: !away } : x)) }), away ? `${p.name} izinli: sırada atlanacak` : `${p.name} yeniden sırada`);
-      } }),
-      h('span', {}, 'İzinli'),
-    ),
-    h('div', { class: 'person-actions' },
-      h('button', { class: 'icon-btn', 'aria-label': 'Yukarı taşı', disabled: i === 0, onclick: () => update((st) => movePerson(st, p.id, -1)) }, '↑'),
-      h('button', { class: 'icon-btn', 'aria-label': 'Aşağı taşı', disabled: i === n - 1, onclick: () => update((st) => movePerson(st, p.id, 1)) }, '↓'),
-      h('button', { class: 'icon-btn', 'aria-label': 'Düzenle', onclick: () => editPerson(p) }, '✎'),
-    ),
-  );
+  const summary = S().taskTypes.map((t) => (c[t.id] ? `${firstName(t.name)} ${c[t.id]}` : null)).filter(Boolean).join(' · ');
+  const now = leaveOn(p);
+  const next = cleanLeaves(p.leaves || []).find((l) => l.from > dayKey());
+  const sub = now ? `İzinde · ${fmtDay(now.to)}'e kadar` : next ? `Planlı izin: ${fmtDay(next.from)} – ${fmtDay(next.to)}` : summary || 'Henüz görev yok';
+  const won = lastMonthWinnerIds().includes(p.id);
+  return cell({
+    av: avatar(p, 40),
+    title: h('span', { style: 'display:inline-flex;align-items:center;gap:6px' }, p.name, won ? h('span', { style: 'color:var(--gold);display:inline-flex', title: 'Geçen ayın elemanı' }, icon('trophy', 16)) : null),
+    sub, subCls: now ? 'today' : '',
+    cls: p.active === false ? 'dim' : '',
+    detail: p.active === false ? 'İzinli' : manage && !p.pinHash ? 'PIN yok' : null,
+    chev: true,
+    onclick: () => (manage ? editPerson(p) : openProfile(p.id)),
+  });
 }
 
-/** Başasistan: kişinin tarihli izinleri. Değişiklik hemen kaydedilir. */
+function addPersonSheet() {
+  const s = S();
+  const lastSen = s.seniorities[s.seniorities.length - 1]?.id;
+  openDialog('Asistan ekle', section(null, [
+    fieldCell('Ad soyad', h('input', { name: 'pname', required: true, maxlength: '60', placeholder: 'Ad Soyad', autocomplete: 'off' })),
+    fieldCell('Kıdem', h('select', { name: 'psen' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === lastSen }, x.name)))),
+  ], { foot: 'Yeni kişi seçtiğin kıdemin sırasının sonuna eklenir.' }), {
+    submitText: 'Ekle',
+    onSubmit: async (fd) => {
+      const n = fd.get('pname').trim();
+      if (!n) return false;
+      await update((st) => addPerson(st, { id: uid(), name: n, seniorityId: fd.get('psen') }), `${n} eklendi`);
+    },
+  });
+}
+
 /** Tarihli izin için otomatik duyuru metni. */
 function leaveAnnouncementText(name, l) {
   const when = l.from === l.to ? `${fmtDay(l.from)} tarihinde` : `${fmtDay(l.from)} – ${fmtDay(l.to)} tarihleri arasında`;
   return `🌴 ${name}, ${when} izinli. ${l.from === l.to ? 'O gün' : 'Bu günlerde'} görev sıralarında atlanacak.`;
 }
 
+/** Başasistan: kişinin tarihli izinleri. Değişiklik hemen kaydedilir. */
 function leaveEditor(p) {
-  const list = h('ul', { class: 'leave-list' });
+  const list = h('div');
   const draw = (leaves) => {
-    list.replaceChildren(...(leaves.length ? leaves.map((l, i) => h('li', {},
-      h('span', {}, `${fmtDay(l.from)} – ${fmtDay(l.to)}`),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'İzni sil', onclick: () => save(leaves.filter((_, j) => j !== i)) }, '🗑'),
-    )) : [h('li', { class: 'muted small' }, 'Planlı izin yok.')]));
+    list.replaceChildren(...(leaves.length ? leaves.map((l, i) => cell({
+      icon: 'umbrella', tile: 'green', title: l.from === l.to ? fmtDay(l.from) : `${fmtDay(l.from)} – ${fmtDay(l.to)}`,
+      trailing: h('button', { type: 'button', class: 'text-btn danger', 'aria-label': 'İzni sil', onclick: () => save(leaves.filter((_, j) => j !== i)) }, icon('trash', 20)),
+    })) : [h('div', { class: 'inline-empty' }, 'Planlı izin yok.')]));
   };
   /** İzinleri kaydeder. Yeni izin eklendiyse aynı işlemde sistem duyurusu da yayınlar. */
   const save = async (leaves, added = null) => {
@@ -1114,38 +1249,55 @@ function leaveEditor(p) {
   const from = h('input', { type: 'date', min: dayKey(), 'aria-label': 'İzin başlangıcı' });
   const to = h('input', { type: 'date', min: dayKey(), 'aria-label': 'İzin bitişi' });
   draw(cleanLeaves(p.leaves || []));
-  return h('fieldset', { class: 'leave-box' },
-    h('legend', {}, 'Tarihli izin'),
+  return section('Tarihli izin', [
     list,
-    h('div', { class: 'leave-add' }, from, h('span', {}, '–'), to,
-      h('button', { type: 'button', class: 'btn small', onclick: () => {
-        if (!from.value || !to.value) return toast('Başlangıç ve bitiş tarihini seç.');
-        if (to.value < from.value) return toast('Bitiş, başlangıçtan önce olamaz.');
-        const current = S().people.find((x) => x.id === p.id)?.leaves || [];
-        const added = { from: from.value, to: to.value };
-        save([...current, added], added);
-        from.value = ''; to.value = '';
-      } }, 'Ekle')),
-    h('small', { class: 'muted' }, 'Kişi bu tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner.'),
-  );
+    fieldCell('Başlangıç', from),
+    fieldCell('Bitiş', to),
+    cell({ icon: 'plus', title: 'İzni ekle', cls: 'accent', onclick: () => {
+      if (!from.value || !to.value) return toast('Başlangıç ve bitiş tarihini seç.');
+      if (to.value < from.value) return toast('Bitiş, başlangıçtan önce olamaz.');
+      const current = S().people.find((x) => x.id === p.id)?.leaves || [];
+      const added = { from: from.value, to: to.value };
+      save([...current, added], added);
+      from.value = ''; to.value = '';
+    } }),
+  ], { foot: 'Kişi bu tarihlerde bütün sıralarda otomatik atlanır, izin bitince kendiliğinden sıraya döner.' });
 }
 
-function editPerson(p) {
+function editPerson(p0) {
   const s = S();
-  const body = h('div', { class: 'form-grid' },
+  const p = personById(p0.id) || p0;
+  const q = queueOf(s, p.seniorityId);
+  const i = q.findIndex((x) => x.id === p.id);
+  const move = async (dir) => { await update((st) => movePerson(st, p.id, dir)); editPerson(p); };
+  openDialog('Asistan', [
     photoPicker(p),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ad soyad'), h('input', { name: 'name', required: true, maxlength: '60', value: p.name })),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Kıdem'),
-      h('select', { name: 'sen' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === p.seniorityId }, x.name)))),
-    h('small', { class: 'muted' }, 'Kıdemi değişen kişi yeni kıdeminin sırasının sonuna eklenir.'),
+    section(null, [
+      fieldCell('Ad soyad', h('input', { name: 'name', required: true, maxlength: '60', value: p.name })),
+      fieldCell('Kıdem', h('select', { name: 'sen' }, s.seniorities.map((x) => h('option', { value: x.id, selected: x.id === p.seniorityId }, x.name)))),
+    ], { foot: 'Kıdemi değişen kişi yeni kıdeminin sırasının sonuna eklenir.' }),
+    section('Sıra', [
+      cell({ icon: 'up', tile: 'gray', title: 'Sırada yukarı al', disabled: i <= 0, cls: i <= 0 ? 'dim' : '', onclick: () => move(-1) }),
+      cell({ icon: 'down', tile: 'gray', title: 'Sırada aşağı al', disabled: i === q.length - 1, cls: i === q.length - 1 ? 'dim' : '', onclick: () => move(1) }),
+    ], { foot: `${senName(p.seniorityId)} sırasında ${i + 1}. sırada (${q.length} kişi).` }),
+    section('Müsaitlik', h('label', { class: 'cell has-icon' },
+      h('span', { class: 'cell-icon orange' }, icon('umbrella')),
+      h('span', { class: 'cell-body' }, h('span', { class: 'cell-title' }, 'İzinli')),
+      toggle({ checked: p.active === false, onchange: (e) => {
+        const away = e.target.checked;
+        update((st) => ({ ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, active: !away } : x)) }), away ? `${p.name} izinli: sırada atlanacak` : `${p.name} yeniden sırada`);
+      } })), { foot: 'İzinli kişi, anahtar kapatılana kadar tüm sıralarda atlanır.' }),
     leaveEditor(p),
-  );
-  openDialog('Asistanı düzenle', body, {
-    extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: async () => {
-      dlg.close();
-      if (!(await askConfirm(`${p.name} ekipten çıkarılsın mı? Geçmiş kayıtları silinmez.`, 'Çıkar'))) return;
-      update((st) => ({ ...st, people: st.people.filter((x) => x.id !== p.id) }), `${p.name} çıkarıldı`);
-    } }, 'Çıkar')],
+    section('Güvenlik', cell({ icon: 'key', tile: 'gray', title: p.pinHash ? 'Yeni PIN ata' : 'PIN ata', detail: p.pinHash ? 'Var' : 'Yok', chev: true, onclick: () => setPinFor(p) })),
+    section(null, [
+      cell({ title: 'Profili gör', cls: 'accent', onclick: () => openProfile(p.id) }),
+      cell({ title: 'Ekipten çıkar', cls: 'danger', onclick: async () => {
+        if (!(await askConfirm(`${p.name} ekipten çıkarılsın mı? Geçmiş kayıtları silinmez.`, 'Çıkar'))) return;
+        await update((st) => ({ ...st, people: st.people.filter((x) => x.id !== p.id) }), `${p.name} çıkarıldı`);
+        closeDlg();
+      } }),
+    ]),
+  ], {
     onSubmit: async (fd) => {
       const name = fd.get('name').trim();
       const senId = fd.get('sen');
@@ -1155,104 +1307,94 @@ function editPerson(p) {
 }
 
 // --- Ayarlar ---
-function editableList(title, items, { onRename, onDelete, onAdd, addPlaceholder }) {
-  const input = h('input', { placeholder: addPlaceholder, maxlength: '50' });
-  return h('div', { class: 'settings-block' },
-    h('h2', {}, title),
-    h('ul', { class: 'edit-list' }, items.map((it) => h('li', {},
-      h('input', { value: it.name, maxlength: '50', 'aria-label': 'Ad', onchange: (e) => { const v = e.target.value.trim(); if (v) onRename(it, v); } }),
-      h('button', { class: 'icon-btn', 'aria-label': 'Sil', onclick: () => onDelete(it) }, '🗑'),
-    ))),
-    h('form', { class: 'add-form', onsubmit: (e) => { e.preventDefault(); const v = input.value.trim(); if (v) onAdd(v); } },
-      input, h('button', { class: 'btn' }, 'Ekle')),
-  );
+function openSettings() {
+  if (tab !== 'settings') prevTab = tab;
+  switchTab('settings');
+}
+/** Ad listesi düzenleme sayfası (görev türleri, kıdemler). */
+function editListSheet(title, getItems, { onRename, onDelete, onAdd, addPlaceholder, foot }) {
+  const reopen = () => editListSheet(title, getItems, { onRename, onDelete, onAdd, addPlaceholder, foot });
+  const input = h('input', { placeholder: addPlaceholder, maxlength: '50', 'aria-label': 'Yeni ad' });
+  openDialog(title, [
+    section(null, getItems().map((it) => h('div', { class: 'cell' },
+      h('input', { value: it.name, maxlength: '50', 'aria-label': 'Ad', onchange: async (e) => { const v = e.target.value.trim(); if (v) await onRename(it, v); } }),
+      h('button', { type: 'button', class: 'text-btn danger', 'aria-label': `${it.name} sil`, onclick: async () => { await onDelete(it); reopen(); } }, icon('trash', 20)),
+    )), { foot }),
+    section('Yeni ekle', h('div', { class: 'cell' }, input, h('button', { type: 'button', class: 'pill-btn', onclick: async () => { const v = input.value.trim(); if (!v) return; await onAdd(v); reopen(); } }, 'Ekle'))),
+  ], { cancelText: 'Bitti' });
 }
 
-// --- Tema ---
 const THEMES = [
-  { id: 'sl', name: 'Sarı-Lacivert', swatch: 'linear-gradient(90deg,#0b2357 50%,#ffd100 50%)', color: '#0b2357' },
-  { id: 'kb', name: 'Kırmızı-Beyaz', swatch: 'linear-gradient(90deg,#c8102e 50%,#ffffff 50%)', color: '#c8102e' },
-  { id: 'klasik', name: 'Klasik mavi', swatch: 'linear-gradient(90deg,#1f4e79 50%,#2c6aa3 50%)', color: '#1f4e79' },
+  { id: 'sl', name: 'Sarı-Lacivert', swatch: 'linear-gradient(135deg,#0b2357 50%,#ffd100 50%)' },
+  { id: 'kb', name: 'Kırmızı-Beyaz', swatch: 'linear-gradient(135deg,#c8102e 50%,#ffffff 50%)' },
+  { id: 'klasik', name: 'Klasik mavi', swatch: 'linear-gradient(135deg,#0a6ed1 50%,#5ac8fa 50%)' },
 ];
 function currentTheme() { return document.documentElement.dataset.theme || 'sl'; }
-document.querySelector('meta[name=theme-color]')?.setAttribute('content', { kb: '#c8102e', klasik: '#1f4e79' }[document.documentElement.dataset.theme] || '#0b2357');
 function setTheme(id) {
   document.documentElement.dataset.theme = id;
   try { localStorage.setItem('gorev-sirasi:theme', id); } catch { /* yoksay */ }
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEMES.find((t) => t.id === id)?.color || '#0b2357');
   render();
-}
-function themeBlock() {
-  return h('div', { class: 'settings-block' },
-    h('h2', {}, '🎨 Tema'),
-    h('div', { class: 'theme-pick' }, THEMES.map((t) => h('button', { class: 'theme-opt', 'aria-pressed': String(currentTheme() === t.id), onclick: () => setTheme(t.id) },
-      h('span', { class: 'theme-swatch', style: `background:${t.swatch}` }), t.name))),
-    h('p', { class: 'muted small', style: 'margin-top:8px' }, 'Seçim yalnızca bu cihazda geçerlidir. Koyu tema telefonun ayarına göre otomatik açılır.'),
-  );
 }
 
 function settingsView() {
   const s = S();
-  const connBlock = h('div', { class: 'settings-block' },
-    h('h2', {}, 'Bağlantı'),
-    h('p', { class: 'muted small' }, `Uygulama sürümü: ${APP_VERSION}`),
-    backend.kind === 'firebase'
-      ? h('p', {}, `✅ Firebase'e bağlı (ekip: ${teamId}). Değişiklikler herkese anında yansır.`)
-      : h('p', {}, '📱 Yerel mod: veriler yalnızca bu cihazda. Ekipçe ortak sıra için README\'deki Firebase kurulumunu yapın.'),
-  );
-  const accountBlock = mePerson() && h('div', { class: 'settings-block' },
-    h('h2', {}, 'Hesabım'),
-    h('p', {}, `${mePerson().name} · ${senName(mePerson().seniorityId)}`),
-    photoPicker(mePerson()),
-    notifBlock(),
-    h('div', { class: 'row wrap' },
-      h('button', { class: 'btn', onclick: openAccount }, "PIN'imi değiştir"),
-      h('button', { class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'),
-    ),
-  );
-  if (!canManage()) {
-    return h('section', {}, accountBlock, themeBlock(), h('p', { class: 'muted small' }, 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.'), connBlock);
-  }
-  return h('section', {},
-    accountBlock,
-    themeBlock(),
-    editableList('Görev türleri', s.taskTypes, {
-      addPlaceholder: 'ör. Konsültasyon',
-      onRename: (t, name) => update((st) => ({ ...st, taskTypes: st.taskTypes.map((x) => (x.id === t.id ? { ...x, name } : x)) }), 'Kaydedildi'),
-      onDelete: async (t) => {
-        if (!(await askConfirm(`"${t.name}" görev türü silinsin mi? Geçmiş kayıtlar kalır.`, 'Sil'))) return;
-        update((st) => ({ ...st, taskTypes: st.taskTypes.filter((x) => x.id !== t.id) }), 'Silindi');
-      },
-      onAdd: (name) => update((st) => ({ ...st, taskTypes: [...st.taskTypes, { id: uid(), name }] }), `${name} eklendi`),
-    }),
-    recurringBlock(),
-    editableList('Kıdemler (en kıdemliden en yeniye)', s.seniorities, {
-      addPlaceholder: 'ör. 6. kıdem',
-      onRename: (x, name) => update((st) => ({ ...st, seniorities: st.seniorities.map((y) => (y.id === x.id ? { ...y, name } : y)) }), 'Kaydedildi'),
-      onDelete: async (x) => {
-        if (queueOf(s, x.id).length) return toast('Bu kıdemde kişiler var; önce onları taşıyın.');
-        if (!(await askConfirm(`"${x.name}" silinsin mi?`, 'Sil'))) return;
-        update((st) => ({ ...st, seniorities: st.seniorities.filter((y) => y.id !== x.id) }), 'Silindi');
-      },
-      onAdd: (name) => update((st) => ({ ...st, seniorities: [...st.seniorities, { id: uid(), name }] }), `${name} eklendi`),
-    }),
-    h('div', { class: 'settings-block' },
-      h('h2', {}, 'Yeni dönem'),
-      h('p', { class: 'muted small' }, 'Herkesi bir üst kıdeme geçirir (ör. 5. kıdem → 4. kıdem). Listenin en üstündekiler (başasistan) ekipten çıkar ve tüm sıralar baştan başlar. Yeni gelenleri sonra ekleyin.'),
-      h('button', { class: 'btn', onclick: async () => {
-        if (!(await askConfirm('Herkes bir üst kıdeme geçirilsin mi? Başasistan kıdemindekiler ekipten çıkarılacak.', 'Geçir'))) return;
+  const mp = mePerson();
+  const manage = canManage();
+  return [
+    pageHead('Ayarlar', { right: h('button', { class: 'text-btn bold', onclick: () => switchTab(prevTab === 'settings' ? 'give' : prevTab) }, 'Bitti') }),
+    mp ? section(null, cell({ av: avatar(mp, 58), title: h('span', { style: 'font-size:20px;font-weight:600' }, mp.name), sub: `${senName(mp.seniorityId)} · Hesap, fotoğraf ve PIN`, chev: true, onclick: openAccount })) : null,
+    mp ? notifSection() : null,
+    section('Görünüm', THEMES.map((t) => cell({
+      lead: h('span', { class: 'cell-icon', style: `background:${t.swatch};box-shadow:inset 0 0 0 0.5px rgb(0 0 0 / 0.12)` }),
+      cls: 'has-icon', title: t.name,
+      trailing: currentTheme() === t.id ? icon('check', 20, 'check-mark') : null,
+      onclick: () => setTheme(t.id),
+    })), { foot: 'Tema yalnızca bu cihazda geçerlidir. Koyu görünüm telefonun ayarını izler.' }),
+    manage ? section('Yönetim', [
+      cell({ icon: 'layers', title: 'Görev türleri', detail: String(s.taskTypes.length), chev: true, onclick: openTypesSheet }),
+      cell({ icon: 'users', title: 'Kıdemler', detail: String(s.seniorities.length), chev: true, onclick: openSenSheet }),
+      cell({ icon: 'repeat', title: 'Otomatik görevler', detail: String((s.recurring || []).length), chev: true, onclick: openRecurringList }),
+      cell({ icon: 'promote', tile: 'orange', title: 'Yeni dönem', chev: true, onclick: async () => {
+        if (!(await askConfirm('Herkes bir üst kıdeme geçirilsin mi? Başasistan kıdemindekiler ekipten çıkarılacak ve tüm sıralar baştan başlayacak.', 'Geçir'))) return;
         update(promoteAll, 'Kıdemler güncellendi');
-      } }, 'Herkesi bir üst kıdeme geçir'),
-    ),
-    h('div', { class: 'settings-block' },
-      h('h2', {}, 'Yedek'),
-      h('div', { class: 'row wrap' },
-        h('button', { class: 'btn', onclick: exportJson }, 'Dışa aktar (JSON)'),
-        h('label', { class: 'btn' }, 'İçe aktar', h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: importJson })),
-      ),
-    ),
-    connBlock,
-  );
+      } }),
+    ], { foot: 'Yeni dönem herkesi bir üst kıdeme geçirir (ör. 5. kıdem → 4. kıdem). Yeni gelenleri sonra eklersin.' }) : null,
+    manage ? section('Yedek', [
+      cell({ icon: 'download', tile: 'gray', title: 'Dışa aktar (JSON)', onclick: exportJson }),
+      h('label', { class: 'cell has-icon tap' }, h('span', { class: 'cell-icon gray' }, icon('upload')), h('span', { class: 'cell-body' }, h('span', { class: 'cell-title' }, 'İçe aktar')),
+        h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: importJson })),
+    ]) : null,
+    section('Hakkında', [
+      cell({ icon: 'info', tile: 'gray', title: 'Sürüm', detail: APP_VERSION }),
+      cell({ icon: 'link', tile: 'gray', title: 'Bağlantı', detail: connText }),
+    ], { foot: manage ? null : 'Görev türleri, kıdemler ve ekip ayarlarını yalnızca başasistan değiştirebilir.' }),
+    mp ? section(null, cell({ title: 'Çıkış yap', cls: 'danger center', onclick: logout })) : null,
+  ];
+}
+function openTypesSheet() {
+  editListSheet('Görev türleri', () => S().taskTypes, {
+    addPlaceholder: 'Konsültasyon',
+    foot: 'Adı değiştirmek için üstüne dokun. Silinen türün geçmiş kayıtları kalır.',
+    onRename: (t, name) => update((st) => ({ ...st, taskTypes: st.taskTypes.map((x) => (x.id === t.id ? { ...x, name } : x)) }), 'Kaydedildi'),
+    onDelete: async (t) => {
+      if (!(await askConfirm(`"${t.name}" görev türü silinsin mi? Geçmiş kayıtlar kalır.`, 'Sil'))) return;
+      await update((st) => ({ ...st, taskTypes: st.taskTypes.filter((x) => x.id !== t.id) }), 'Silindi');
+    },
+    onAdd: (name) => update((st) => ({ ...st, taskTypes: [...st.taskTypes, { id: uid(), name }] }), `${name} eklendi`),
+  });
+}
+function openSenSheet() {
+  editListSheet('Kıdemler', () => S().seniorities, {
+    addPlaceholder: '6. kıdem',
+    foot: 'En kıdemliden en yeniye sıralı. İlk sıradaki kıdem (başasistan) yöneticidir.',
+    onRename: (x, name) => update((st) => ({ ...st, seniorities: st.seniorities.map((y) => (y.id === x.id ? { ...y, name } : y)) }), 'Kaydedildi'),
+    onDelete: async (x) => {
+      if (queueOf(S(), x.id).length) return toast('Bu kıdemde kişiler var; önce onları taşı.');
+      if (!(await askConfirm(`"${x.name}" silinsin mi?`, 'Sil'))) return;
+      await update((st) => ({ ...st, seniorities: st.seniorities.filter((y) => y.id !== x.id) }), 'Silindi');
+    },
+    onAdd: (name) => update((st) => ({ ...st, seniorities: [...st.seniorities, { id: uid(), name }] }), `${name} eklendi`),
+  });
 }
 
 function exportJson() {
@@ -1285,12 +1427,14 @@ async function importJson(e) {
 
 // ---------- Giriş ve PIN ----------
 function loginView() {
-  return h('div', { class: 'empty' },
-    h('p', { class: 'lead' }, '🔒 Devam etmek için giriş yap.'),
+  navTitle.textContent = '';
+  return h('div', { class: 'empty-state', style: 'padding-top:18vh' },
+    h('img', { src: 'icons/icon-192.png', alt: '' }),
+    h('h2', {}, 'Görev Sırası'),
     h('p', {}, setupMode()
-      ? 'İlk kurulum: başasistan adını seçip kendine bir PIN belirlemeli. Diğerlerinin PIN\'lerini sonra o atayacak.'
+      ? 'İlk kurulum: başasistan adını seçip kendine bir PIN belirlemeli. Diğerlerinin PIN\'lerini sonra o verecek.'
       : 'Adını seç ve başasistanın sana verdiği PIN\'i gir.'),
-    h('button', { class: 'btn primary', onclick: openLogin }, 'Giriş yap'),
+    h('button', { class: 'btn-lg primary', onclick: openLogin }, 'Giriş yap'),
   );
 }
 
@@ -1298,36 +1442,33 @@ function pinInput(name, placeholder, required = true) {
   return h('input', { name, type: 'password', inputmode: 'numeric', pattern: '[0-9]{4,6}', minlength: '4', maxlength: '6', placeholder, autocomplete: 'off', required, title: '4–6 rakam' });
 }
 
-function openLogin() {
+/** Giriş: önce ad listesi, sonra PIN. */
+function openLogin(personId = null) {
   const s = S();
-  const info = h('p', { class: 'muted small' });
-  const pin = pinInput('pin', 'PIN');
-  const pin2 = pinInput('pin2', 'PIN (tekrar)', false);
-  const pin2Wrap = h('div', { class: 'field' }, pin2);
-  const select = h('select', { name: 'who', required: true, 'aria-label': 'Adın', onchange: () => sync() },
-    h('option', { value: '' }, '— Adını seç —'),
-    s.seniorities.map((x) => {
+  const p = typeof personId === 'string' ? s.people.find((x) => x.id === personId) : null;
+  if (!p) {
+    openDialog('Giriş', s.seniorities.map((x) => {
       const q = queueOf(s, x.id);
-      return q.length ? h('optgroup', { label: x.name }, q.map((p) => h('option', { value: p.id }, p.name))) : null;
-    }),
-  );
-  function sync() {
-    const p = S().people.find((x) => x.id === select.value);
-    const bootstrap = !!p && !p.pinHash && p.seniorityId === adminSenId() && setupMode();
-    pin2Wrap.hidden = !bootstrap;
-    pin2.required = bootstrap;
-    pin.disabled = !!p && !p.pinHash && !bootstrap;
-    info.textContent = !p ? 'Adını seç ve PIN\'ini gir.'
-      : bootstrap ? 'İlk kurulum: kendine 4–6 haneli bir PIN belirle. Diğerlerinin PIN\'lerini Ekip sekmesinden sen atayacaksın.'
-      : !p.pinHash ? 'Henüz PIN\'in yok. Başasistandan PIN iste.'
-      : 'PIN\'ini gir.';
+      return q.length ? section(x.name, q.map((pp) => cell({ av: avatar(pp, 36), title: pp.name, detail: pp.pinHash ? null : 'PIN yok', chev: true, onclick: () => openLogin(pp.id) }))) : null;
+    }), { cancelText: 'Vazgeç' });
+    return;
   }
-  sync();
-  openDialog('Giriş', h('div', { class: 'form-grid' }, select, pin, pin2Wrap, info), {
+  const bootstrap = !p.pinHash && p.seniorityId === adminSenId() && setupMode();
+  const noPin = !p.pinHash && !bootstrap;
+  const pin = pinInput('pin', bootstrap ? 'Yeni PIN' : 'PIN');
+  pin.classList.add('pin-field');
+  const pin2 = pinInput('pin2', 'PIN (tekrar)', bootstrap);
+  pin2.classList.add('pin-field');
+  openDialog(null, [
+    h('input', { type: 'hidden', name: 'who', value: p.id }),
+    h('div', { class: 'profile-hero' }, avatar(p, 80), h('h3', {}, p.name), h('span', { class: 'muted' }, senName(p.seniorityId))),
+    noPin ? h('p', { class: 'group-foot', style: 'text-align:center;margin-top:20px' }, 'Henüz PIN\'in yok. Başasistandan PIN iste.')
+      : section(null, [h('div', { class: 'cell' }, pin), bootstrap ? h('div', { class: 'cell' }, pin2) : null],
+        { foot: bootstrap ? 'İlk kurulum: kendine 4–6 haneli bir PIN belirle. Diğerlerinin PIN\'lerini Ekip sekmesinden sen vereceksin.' : '4–6 haneli PIN\'ini gir.' }),
+  ], {
+    cancelText: 'Geri',
     submitText: 'Giriş',
-    onSubmit: async (fd) => {
-      const p = S().people.find((x) => x.id === fd.get('who'));
-      if (!p) return false;
+    onSubmit: noPin ? null : async (fd) => {
       if (Date.now() < pinLockedUntil) {
         toast(`Çok fazla yanlış deneme. ${Math.ceil((pinLockedUntil - Date.now()) / 1000)} sn bekle.`);
         return false;
@@ -1335,32 +1476,40 @@ function openLogin() {
       const pinV = fd.get('pin') || '';
       if (!PIN_RE.test(pinV)) { toast('PIN 4–6 rakamdan oluşmalı.'); return false; }
       const hash = await hashPin(p.id, pinV);
-      if (!p.pinHash) {
-        if (!(p.seniorityId === adminSenId() && setupMode())) { toast('Henüz PIN\'in yok; başasistandan iste.'); return false; }
+      const cur = S().people.find((x) => x.id === p.id);
+      if (!cur) return false;
+      if (!cur.pinHash) {
+        if (!(cur.seniorityId === adminSenId() && setupMode())) { toast('Henüz PIN\'in yok; başasistandan iste.'); return false; }
         if (pinV !== fd.get('pin2')) { toast('PIN\'ler aynı değil.'); return false; }
         const r = await run((st) => {
           if (st.people.some((x) => x.seniorityId === st.seniorities[0]?.id && x.pinHash)) throw new Error('Başasistan PIN\'i zaten belirlenmiş.');
           return { state: { ...st, people: st.people.map((x) => (x.id === p.id ? { ...x, pinHash: hash } : x)) } };
         });
         if (!r) return false;
-      } else if (hash !== p.pinHash) {
+      } else if (hash !== cur.pinHash) {
         pinFails += 1;
         if (pinFails >= 5) { pinLockedUntil = Date.now() + 30000; pinFails = 0; }
+        navigator.vibrate?.([30, 40, 30]);
+        dlgForm.querySelector('.pin-field')?.animate?.([{ transform: 'translateX(0)' }, { transform: 'translateX(-10px)' }, { transform: 'translateX(10px)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(0)' }], { duration: 320, easing: 'ease-out' });
         toast('PIN yanlış.');
         return false;
       }
       pinFails = 0;
       saveSession({ personId: p.id, pinHash: hash });
+      tab = 'give';
       render();
-      toast(`Hoş geldin, ${p.name}`);
+      toast(`Hoş geldin, ${firstName(p.name)}`);
       setTimeout(checkRecurring, 500);
     },
   });
+  // "Geri" ad listesine döner.
+  dlgForm.querySelector('.sheet-head .left .text-btn')?.addEventListener('click', (e) => { e.stopImmediatePropagation(); openLogin(); }, { capture: true });
+  setTimeout(() => pin.focus?.(), 350);
 }
 
 /** Bu cihazdaki oturumu kapatır. Tekrar girmek için PIN gerekir. */
 async function logout() {
-  if (dlg.open) dlg.close();
+  if (dlg.open) await closeDlg();
   const mp = mePerson();
   if (!(await askConfirm(`${mp ? mp.name + ' olarak açık oturum' : 'Oturum'} bu cihazda kapatılsın mı? Tekrar girmek için PIN gerekir.`, 'Çıkış yap'))) return;
   if (mp?.push?.[deviceId()]) { await removePushToken(mp.id); backend.deletePushToken(); }
@@ -1370,28 +1519,36 @@ async function logout() {
   toast('Oturum kapatıldı');
 }
 
-/** Kendi PIN'ini değiştirme. Başka biri olarak işlem yapmak mümkün değil; oturum bu kişiye bağlı. */
+/** Hesabım: fotoğraf, bildirim, PIN değiştirme. */
 function openAccount() {
   const mp = mePerson();
   if (!mp) return openLogin();
-  const body = h('div', { class: 'form-grid' },
-    h('p', {}, h('strong', {}, mp.name), ` · ${senName(mp.seniorityId)}`),
+  openDialog('Hesabım', [
     photoPicker(mp),
-    notifBlock(),
-    h('p', { class: 'muted small' }, 'PIN\'ini değiştirmek için mevcut PIN\'ini gir.'),
-    pinInput('old', 'Mevcut PIN'),
-    pinInput('new1', 'Yeni PIN'),
-    pinInput('new2', 'Yeni PIN (tekrar)'),
-  );
-  openDialog('Hesabım', body, {
-    extra: [h('button', { type: 'button', class: 'btn danger-ghost', onclick: logout }, 'Çıkış yap'), h('button', { type: 'button', class: 'btn', onclick: () => openProfile(mp.id) }, 'Profilim')],
-    submitText: 'PIN\'i değiştir',
+    h('p', { class: 'group-foot', style: 'text-align:center;margin-top:0' }, `${mp.name} · ${senName(mp.seniorityId)}`),
+    notifSection(),
+    section('PIN değiştir', [
+      fieldCell('Mevcut', pinInput('old', '••••', false)),
+      fieldCell('Yeni', pinInput('new1', '••••', false)),
+      fieldCell('Yeni (tekrar)', pinInput('new2', '••••', false)),
+    ], { foot: 'Değiştirmek istemiyorsan boş bırak.' }),
+    section(null, [
+      cell({ title: 'Profilim', cls: 'accent', onclick: () => openProfile(mp.id) }),
+      cell({ title: 'Çıkış yap', cls: 'danger', onclick: logout }),
+    ]),
+  ], {
+    kind: 'account',
+    cancelText: 'Kapat',
+    submitText: 'Kaydet',
     onSubmit: async (fd) => {
       const me = mePerson();
       if (!me) return;
-      if ((await hashPin(me.id, fd.get('old'))) !== me.pinHash) { toast('Mevcut PIN yanlış.'); return false; }
-      if (fd.get('new1') !== fd.get('new2')) { toast('Yeni PIN\'ler aynı değil.'); return false; }
-      const hash = await hashPin(me.id, fd.get('new1'));
+      const [old, n1, n2] = ['old', 'new1', 'new2'].map((k) => fd.get(k) || '');
+      if (!old && !n1 && !n2) return true;
+      if (!PIN_RE.test(n1)) { toast('Yeni PIN 4–6 rakamdan oluşmalı.'); return false; }
+      if ((await hashPin(me.id, old)) !== me.pinHash) { toast('Mevcut PIN yanlış.'); return false; }
+      if (n1 !== n2) { toast('Yeni PIN\'ler aynı değil.'); return false; }
+      const hash = await hashPin(me.id, n1);
       const prev = session;
       saveSession({ personId: me.id, pinHash: hash }); // ekran yenilenmeden önce yeni oturumu yaz
       const r = await run((st) => ({ state: { ...st, people: st.people.map((x) => (x.id === me.id ? { ...x, pinHash: hash } : x)) } }));
@@ -1406,13 +1563,12 @@ function openAccount() {
 function setPinFor(p) {
   if (!isAdmin()) return toast('PIN\'leri yalnızca başasistan atayabilir.');
   const suggested = String(Math.floor(1000 + Math.random() * 9000));
-  const input = h('input', { name: 'pin', inputmode: 'numeric', pattern: '[0-9]{4,6}', minlength: '4', maxlength: '6', required: true, value: suggested, autocomplete: 'off', class: 'pin-show' });
-  const body = h('div', { class: 'form-grid' },
-    h('p', {}, h('strong', {}, p.name), p.pinHash ? ' için yeni PIN. Eski PIN geçersiz olur ve açık oturumu kapanır.' : ' için PIN.'),
-    input,
-    h('small', { class: 'muted' }, 'Bu PIN\'i kişiye kendin ilet. Kaydettikten sonra bir daha gösterilmez.'),
-  );
-  openDialog('PIN ata', body, {
+  const input = h('input', { name: 'pin', inputmode: 'numeric', pattern: '[0-9]{4,6}', minlength: '4', maxlength: '6', required: true, value: suggested, autocomplete: 'off', class: 'pin-field' });
+  openDialog('PIN ata', [
+    h('div', { class: 'profile-hero' }, avatar(p, 64), h('h3', {}, p.name)),
+    section(null, h('div', { class: 'cell' }, input),
+      { foot: `${p.pinHash ? 'Eski PIN geçersiz olur ve açık oturumu kapanır. ' : ''}Bu PIN'i kişiye kendin ilet; kaydettikten sonra bir daha gösterilmez.` }),
+  ], {
     onSubmit: async (fd) => {
       const pin = fd.get('pin');
       if (!PIN_RE.test(pin)) { toast('PIN 4–6 rakamdan oluşmalı.'); return false; }
@@ -1435,28 +1591,26 @@ function switchTab(next, dir = 0) {
   tab = next;
   if (!same) {
     render();
-    // Kaydırmayla geçişte içerik, parmağın geldiği yönden kısaca kayarak gelir.
-    if (dir) {
-      view.classList.remove('enter-next', 'enter-prev');
-      void view.offsetWidth;
-      view.classList.add(dir > 0 ? 'enter-next' : 'enter-prev');
-    }
+    // Kaydırmayla geçişte içerik parmağın yönünden gelir; dokunarak geçişte yumuşakça belirir.
+    view.classList.remove('enter-next', 'enter-prev', 'fade-in');
+    void view.offsetWidth;
+    view.classList.add(dir > 0 ? 'enter-next' : dir < 0 ? 'enter-prev' : 'fade-in');
   }
   window.scrollTo({ top: 0, behavior: same ? 'smooth' : 'instant' });
 }
 document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
-view.addEventListener('animationend', () => view.classList.remove('enter-next', 'enter-prev'));
+view.addEventListener('animationend', (e) => { if (e.target === view) view.classList.remove('enter-next', 'enter-prev', 'fade-in'); });
 
 // Parmakla sağa/sola kaydırarak sekme değiştirme.
-// Kendi içinde kayan alanlar (tablo, çipler), yazı alanları ve açık pencerelerde çalışmaz.
+// Kendi içinde kayan alanlar, yazı alanları ve açık pencerelerde çalışmaz.
 // Ekran kenarından başlayan hareket telefonun "geri" hareketine bırakılır.
-const SWIPE_SKIP = 'input, textarea, select, .table-wrap, .chips, .react-picker, .react-bar, dialog';
+const SWIPE_SKIP = 'input, textarea, select, .segmented, .chips, .reacts, dialog';
 const EDGE = 24;
 let swipeStart = null;
 document.addEventListener('touchstart', (e) => {
   const t = e.touches[0];
   swipeStart = null;
-  if (e.touches.length !== 1 || !data || document.querySelector('dialog[open]')) return;
+  if (e.touches.length !== 1 || !data || document.querySelector('dialog[open]') || !TAB_ORDER.includes(tab)) return;
   if (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) return;
   if (e.target.closest?.(SWIPE_SKIP)) return;
   swipeStart = { x: t.clientX, y: t.clientY, t: Date.now() };
@@ -1470,7 +1624,6 @@ document.addEventListener('touchend', (e) => {
   const next = neighborTab(TAB_ORDER, tab, dir);
   if (next) switchTab(next, dir);
 }, { passive: true });
-document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   const hadController = !!navigator.serviceWorker.controller;
@@ -1491,19 +1644,17 @@ applyHash();
 window.addEventListener('hashchange', () => { applyHash(); render(); });
 
 (async function start() {
-  const conn = document.getElementById('conn');
   try {
     backend = await createBackend(firebaseConfig, teamId);
   } catch (err) {
     console.error(err);
+    connText = 'Bağlantı hatası';
     view.replaceChildren(navigator.onLine === false
-      ? empty('📡 İnternet bağlantısı yok. Bağlantı gelince sayfayı yenileyin.', 'Yenile', () => location.reload())
-      : empty('Firebase\'e bağlanılamadı: ' + err.message + ' — internet bağlantısını kontrol edip sayfayı yenileyin.', 'Yenile', () => location.reload()));
-    conn.textContent = '⚠️ Bağlantı hatası';
+      ? emptyState('link', 'İnternet yok', 'Bağlantı gelince sayfayı yenile.', 'Yenile', () => location.reload())
+      : emptyState('link', 'Bağlanılamadı', `Sunucuya bağlanılamadı (${err.message}). İnternet bağlantını kontrol edip yenile.`, 'Yenile', () => location.reload()));
     return;
   }
-  conn.textContent = backend.kind === 'firebase' ? '● Ortak (canlı)' : '● Yerel mod';
-  conn.classList.toggle('live', backend.kind === 'firebase');
+  connText = backend.kind === 'firebase' ? 'Ortak (canlı)' : 'Yerel mod';
   let pending = false;
   let first = true;
   backend.subscribe((d) => {

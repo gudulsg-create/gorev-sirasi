@@ -1,7 +1,7 @@
 // Sekmeler arası parmakla sağa/sola kaydırma: saf mantık (DOM yok, test edilebilir).
 
 /** Alt çubuktaki sekme sırası. */
-export const TAB_ORDER = ['give', 'mine', 'history', 'team', 'settings'];
+export const TAB_ORDER = ['give', 'mine', 'history', 'team'];
 
 const MIN_DX = 60; // en az bu kadar piksel yatay hareket
 const LONG_DX = 140; // bu kadar uzun sürükleme yavaş da olsa sayılır

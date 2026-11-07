@@ -1,7 +1,7 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.0.1';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { TAB_ORDER, swipeDirection, neighborTab } from './swipe.js';
@@ -402,8 +402,11 @@ function giveView() {
   return [
     pageHead('Görev ver', { eyebrow }),
     installHint(),
-    section(null, s.taskTypes.map((t) => cell({ icon: typeIcon(t.name), title: t.name, chev: true, onclick: () => chooseSeniority(t) })),
-      { foot: s.taskTypes.length ? null : 'Ayarlar → Görev türleri bölümünden görev türü ekle.' }),
+    s.taskTypes.length
+      ? h('div', { class: 'type-grid' }, s.taskTypes.map((t) => h('button', { type: 'button', class: 'type-tile', onclick: () => chooseSeniority(t) },
+        h('span', { class: 'cell-icon' }, icon(typeIcon(t.name))),
+        h('span', { class: 'type-tile-name' }, t.name))))
+      : h('p', { class: 'group-foot' }, 'Ayarlar → Görev türleri bölümünden görev türü ekle.'),
     announcementCell(),
     monthCell(),
     upcomingRecurring(),

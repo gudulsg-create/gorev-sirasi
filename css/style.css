@@ -370,3 +370,94 @@ html[data-theme='kb'] .install-hint { border-color: color-mix(in srgb, var(--red
   html[data-theme='kb'] .next-table thead th { background: #8a0b20; }
 }
 .theme-swatch { border: 1px solid var(--line); }
+
+/* =====================================================================
+   2.0 — Alt gezinme çubuğu ve genel cila
+   Şekil kuralı: kartlar 14px, düğme/alan 10px, küçük etiket 8px, hap 999px.
+   ===================================================================== */
+:root { --radius: 14px; --r-ctl: 10px; --nav-h: 62px; --ease: cubic-bezier(0.23, 1, 0.32, 1); }
+.topbar { padding-top: calc(12px + env(safe-area-inset-top)); padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right)); }
+.me { padding: 4px 12px 4px 4px; max-width: 46vw; font-weight: 600; }
+
+/* Alt gezinme (telefon) */
+.tabs {
+  position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20;
+  border-bottom: 0; border-top: 1px solid var(--line);
+  padding: 0 calc(4px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(4px + env(safe-area-inset-left));
+  box-shadow: 0 -2px 12px rgb(0 0 0 / 0.05);
+}
+.tabs button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: var(--nav-h); padding: 6px 0 8px; border-bottom: 0;
+  font-size: 0.7rem; font-weight: 600; letter-spacing: 0.01em; color: var(--muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-ico { position: relative; display: grid; place-items: center; width: 54px; height: 30px; border-radius: 999px; transition: background-color 0.18s var(--ease); }
+.tab-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.tab-label { white-space: nowrap; }
+.tabs button[aria-selected='true'] { color: var(--brand-2); font-weight: 700; }
+.tabs button[aria-selected='true'] .tab-ico { background: color-mix(in srgb, var(--brand-2) 14%, transparent); }
+.tabs button:active .tab-ico { background: color-mix(in srgb, var(--brand-2) 10%, transparent); }
+.tab-count { top: -1px; right: 6px; box-shadow: 0 0 0 2px var(--surface); }
+main { padding-bottom: calc(var(--nav-h) + 32px + env(safe-area-inset-bottom)); }
+#toast { bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom)); }
+
+/* Geniş ekran: gezinme yine üstte, simge + yazı yan yana */
+@media (min-width: 768px) {
+  .tabs { position: sticky; top: 0; bottom: auto; border-top: 0; border-bottom: 1px solid var(--line); box-shadow: none; padding: 0 16px; justify-content: center; }
+  .tabs button { flex: 0 1 150px; flex-direction: row; gap: 4px; min-height: 52px; font-size: 0.9rem; }
+  .tab-ico { width: 40px; }
+  main { padding-bottom: 64px; }
+  #toast { bottom: 24px; }
+}
+
+/* Temalara göre seçili sekme */
+html[data-theme='sl'] .tabs button[aria-selected='true'] .tab-ico { background: var(--yellow); color: var(--navy); }
+html[data-theme='kb'] .tabs button[aria-selected='true'] .tab-ico { background: color-mix(in srgb, var(--red) 13%, transparent); }
+@media (prefers-color-scheme: dark) {
+  html[data-theme='kb'] .tabs button[aria-selected='true'] .tab-ico { background: rgb(255 77 99 / 0.18); }
+}
+
+/* Başlıklar */
+h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+.lead { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; margin-top: 4px; }
+
+/* Şekil kilidi */
+.btn, input:not([type='checkbox']), select, .icon-btn, .pin-btn, .ann-compose textarea { border-radius: var(--r-ctl); }
+.sen-btn, .theme-opt, .leave-box, .recur-list li, .ann-item, .leader-list li, .pstat, .notif-box, .react-picker { border-radius: 12px; }
+.note, .ann-reads { border-radius: 8px; }
+.btn { min-height: 40px; }
+.btn.small { min-height: 32px; }
+
+/* Görev türü kartları: ok işareti, tek kalan kart tam genişlik */
+.type-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 72px; line-height: 1.25; }
+.type-btn::after { content: ''; flex: none; width: 9px; height: 9px; border-right: 2.5px solid var(--muted); border-top: 2.5px solid var(--muted); transform: rotate(45deg); margin-right: 4px; opacity: 0.7; }
+.type-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+@media (max-width: 480px) { .type-grid { grid-template-columns: 1fr 1fr; } .type-grid .type-btn:last-child:nth-child(odd) { grid-column: 1 / -1; } }
+
+/* Sıradakiler: görev adı sütunu kaydırırken sabit */
+.next-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+.next-table thead th:first-child { position: sticky; left: 0; z-index: 2; }
+.next-table thead th { font-size: 0.8rem; letter-spacing: 0.02em; }
+
+/* Dokunma geri bildirimi */
+.btn, .type-btn, .sen-btn, .chip-btn, .icon-btn, .react-chip, .react-add, .theme-opt, .month-card, .ann-card, .pin-btn {
+  transition: transform 0.12s var(--ease), background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+:is(.btn, .type-btn, .chip-btn, .icon-btn, .react-chip, .react-add, .theme-opt, .pin-btn, .me):active:not(:disabled) { transform: scale(0.97); }
+:is(.month-card, .ann-card):active { transform: scale(0.99); }
+.sen-btn:active:not(:disabled) { background: color-mix(in srgb, var(--brand-2) 10%, var(--soft)); }
+@media (hover: hover) {
+  .type-btn:hover { box-shadow: 0 4px 16px rgb(0 0 0 / 0.08); }
+  .btn:not(.primary):not(:disabled):hover, .chip-btn:not([aria-pressed='true']):hover, .icon-btn:not(:disabled):hover { background: var(--soft); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; }
+}
+
+/* Görev kartları biraz daha ferah */
+.asg { padding: 14px 16px; gap: 10px; }
+.asg.late { border-left-width: 5px; }
+.settings-block { padding: 4px 16px 16px; }
+html[data-theme='sl'] .tabs button[aria-selected='true'] .tab-count { background: var(--navy); color: var(--yellow); }

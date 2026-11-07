@@ -1,7 +1,7 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2026.11.05-5';
+export const APP_VERSION = '2.0.0';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
@@ -227,8 +227,13 @@ function render() {
   document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   const mp = data ? mePerson() : null;
   const meBtn = document.getElementById('me-btn');
-  if (mp) meBtn.replaceChildren(avatar(mp, 24), h('span', { class: 'me-text' }, `${mp.name} · ${senName(mp.seniorityId)}`));
-  else meBtn.textContent = '🔒 Giriş yap';
+  if (mp) {
+    meBtn.replaceChildren(avatar(mp, 26), h('span', { class: 'me-text' }, mp.name));
+    meBtn.title = `${mp.name} · ${senName(mp.seniorityId)}`;
+  } else {
+    meBtn.textContent = 'Giriş yap';
+    meBtn.removeAttribute('title');
+  }
   if (!data) return;
   if (S().people.length && !mp) {
     view.replaceChildren(loginView());
@@ -1423,7 +1428,13 @@ function setPinFor(p) {
 }
 
 // ---------- Başlat ----------
-document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+// Sekme değişince (ya da açık sekmeye yeniden dokununca) sayfa en üste döner.
+document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => {
+  const same = tab === b.dataset.tab;
+  tab = b.dataset.tab;
+  if (!same) render();
+  window.scrollTo({ top: 0, behavior: same ? 'smooth' : 'instant' });
+}));
 document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

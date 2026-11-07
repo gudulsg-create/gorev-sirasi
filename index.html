@@ -2,7 +2,7 @@
 <html lang="tr" data-theme="sl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b2357" />
   <title>Görev Sırası</title>
   <link rel="manifest" href="manifest.webmanifest" />
@@ -28,11 +28,26 @@
   </header>
 
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="give" aria-selected="true">Görev ver</button>
-    <button role="tab" data-tab="mine">Görevlerim<span class="tab-count" id="mine-count" hidden></span></button>
-    <button role="tab" data-tab="history">Geçmiş</button>
-    <button role="tab" data-tab="team">Ekip</button>
-    <button role="tab" data-tab="settings">Ayarlar</button>
+    <button role="tab" data-tab="give" aria-selected="true">
+      <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+      <span class="tab-label">Görev ver</span>
+    </button>
+    <button role="tab" data-tab="mine">
+      <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><span class="tab-count" id="mine-count" hidden></span></span>
+      <span class="tab-label">Görevlerim</span>
+    </button>
+    <button role="tab" data-tab="history">
+      <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span>
+      <span class="tab-label">Geçmiş</span>
+    </button>
+    <button role="tab" data-tab="team">
+      <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><path d="M15.5 5.6a3 3 0 0 1 0 5.8M17.5 14.3c1.6.6 2.7 2.2 3 4.7"/></svg></span>
+      <span class="tab-label">Ekip</span>
+    </button>
+    <button role="tab" data-tab="settings">
+      <span class="tab-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></span>
+      <span class="tab-label">Ayarlar</span>
+    </button>
   </nav>
 
   <main id="view" tabindex="-1"><p class="loading">Yükleniyor…</p></main>

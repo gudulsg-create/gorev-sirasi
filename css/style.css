@@ -461,3 +461,11 @@ h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
 .asg.late { border-left-width: 5px; }
 .settings-block { padding: 4px 16px 16px; }
 html[data-theme='sl'] .tabs button[aria-selected='true'] .tab-count { background: var(--navy); color: var(--yellow); }
+
+/* Kaydırmayla sekme geçişi: içerik parmağın yönünden kısaca kayarak gelir */
+main.enter-next { animation: tab-in-next 0.22s var(--ease); }
+main.enter-prev { animation: tab-in-prev 0.22s var(--ease); }
+@keyframes tab-in-next { from { transform: translateX(32px); opacity: 0.4; } }
+@keyframes tab-in-prev { from { transform: translateX(-32px); opacity: 0.4; } }
+body { overflow-x: hidden; }
+@media (prefers-reduced-motion: reduce) { main.enter-next, main.enter-prev { animation: none; } }

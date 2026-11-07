@@ -1,9 +1,10 @@
 import * as cfg from './firebase-config.js';
 const { firebaseConfig, teamId } = cfg;
 const vapidKey = cfg.vapidKey || '';
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.0.1';
 const notifyUrl = cfg.notifyUrl || '';
 import { createBackend } from './backend.js';
+import { TAB_ORDER, swipeDirection, neighborTab } from './swipe.js';
 import { assign, cancel, passOn, nextPerson, queueOf, addPerson, movePerson, changeSeniority, promoteAll, defaultState, allowedSeniorities, monthKey, bumpStat, ranking, winners, prevMonth, dayKey, leaveOn, cleanLeaves, REACTIONS, setReaction, groupReactions, dueRecurring, runRecurring, issueDay, occurrenceKind, skipWeekend, addAnnouncement, removeAnnouncement, markAnnouncementsRead, reactAnnouncement, unreadCount, trophies, MAX_ANNOUNCEMENT_LEN } from './rotation.js';
 
 // ---------- Durum ----------
@@ -1429,12 +1430,46 @@ function setPinFor(p) {
 
 // ---------- Başlat ----------
 // Sekme değişince (ya da açık sekmeye yeniden dokununca) sayfa en üste döner.
-document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => {
-  const same = tab === b.dataset.tab;
-  tab = b.dataset.tab;
-  if (!same) render();
+function switchTab(next, dir = 0) {
+  const same = tab === next;
+  tab = next;
+  if (!same) {
+    render();
+    // Kaydırmayla geçişte içerik, parmağın geldiği yönden kısaca kayarak gelir.
+    if (dir) {
+      view.classList.remove('enter-next', 'enter-prev');
+      void view.offsetWidth;
+      view.classList.add(dir > 0 ? 'enter-next' : 'enter-prev');
+    }
+  }
   window.scrollTo({ top: 0, behavior: same ? 'smooth' : 'instant' });
-}));
+}
+document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+view.addEventListener('animationend', () => view.classList.remove('enter-next', 'enter-prev'));
+
+// Parmakla sağa/sola kaydırarak sekme değiştirme.
+// Kendi içinde kayan alanlar (tablo, çipler), yazı alanları ve açık pencerelerde çalışmaz.
+// Ekran kenarından başlayan hareket telefonun "geri" hareketine bırakılır.
+const SWIPE_SKIP = 'input, textarea, select, .table-wrap, .chips, .react-picker, .react-bar, dialog';
+const EDGE = 24;
+let swipeStart = null;
+document.addEventListener('touchstart', (e) => {
+  const t = e.touches[0];
+  swipeStart = null;
+  if (e.touches.length !== 1 || !data || document.querySelector('dialog[open]')) return;
+  if (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) return;
+  if (e.target.closest?.(SWIPE_SKIP)) return;
+  swipeStart = { x: t.clientX, y: t.clientY, t: Date.now() };
+}, { passive: true });
+document.addEventListener('touchcancel', () => { swipeStart = null; }, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!swipeStart) return;
+  const t = e.changedTouches[0];
+  const dir = swipeDirection({ dx: t.clientX - swipeStart.x, dy: t.clientY - swipeStart.y, dt: Date.now() - swipeStart.t });
+  swipeStart = null;
+  const next = neighborTab(TAB_ORDER, tab, dir);
+  if (next) switchTab(next, dir);
+}, { passive: true });
 document.getElementById('me-btn').addEventListener('click', () => (data && mePerson() ? openAccount() : data && S().people.length ? openLogin() : null));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

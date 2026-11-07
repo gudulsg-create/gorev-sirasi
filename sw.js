@@ -1,7 +1,7 @@
 // Basit service worker: önce ağ, ağ yoksa son kaydedilen sürüm.
 // Böylece güncellemeler hemen gelir; internet yokken uygulama boş sayfa yerine açılır.
-const CACHE = 'gorev-sirasi-v3';
-const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/backend.js', './js/rotation.js', './js/firebase-config.js', './manifest.webmanifest', './icons/icon-192.png'];
+const CACHE = 'gorev-sirasi-v4';
+const SHELL = ['./', './index.html', './css/style.css', './js/app.js', './js/backend.js', './js/rotation.js', './js/swipe.js', './js/firebase-config.js', './manifest.webmanifest', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

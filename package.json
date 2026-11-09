@@ -1,6 +1,6 @@
 {
   "name": "gorev-sirasi",
-  "version": "3.0.1",
+  "version": "2.0.0",
   "description": "Asistanlar arasında kıdeme göre sırayla görev dağıtımı",
   "type": "module",
   "private": true,
